@@ -7,6 +7,8 @@
 out
 gen
 
+bin/fetch_heat_pump_data/vendor/
+
 
 
 
@@ -15,4 +17,3 @@ gen
 notes.md
 temp
 temp2
-.ddev

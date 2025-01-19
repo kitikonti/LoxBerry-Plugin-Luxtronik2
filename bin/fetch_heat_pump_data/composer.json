@@ -1,0 +1,11 @@
+{
+    "name": "martin/luxtronic2",
+    "autoload": {
+        "psr-4": {
+            "Luxtronic2\\": "src/"
+        }
+    },
+    "require": {
+        "phrity/websocket": "^1.0"
+    }
+}

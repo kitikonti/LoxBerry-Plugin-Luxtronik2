@@ -13,5 +13,9 @@ cp -p -v -r /tmp/$ARGV1\_upgrade/config/* $ARGV5/config/plugins/$ARGV3/
 echo "<INFO> Remove temporary folders"
 rm -r /tmp/$ARGV1\_upgrade
 
+# Update composer packages
+echo "<INFO> Update composer packages."
+php $PBIN/composer.phar install --working-dir=$PBIN/fetch_heat_pump_data
+
 # Exit with Status 0
 exit 0
