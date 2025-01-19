@@ -1,0 +1,18 @@
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+
+
+
+
+
+# Temporary ignores
+notes.md
+temp
+temp2
+.ddev
