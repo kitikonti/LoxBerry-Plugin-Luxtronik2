@@ -12,37 +12,10 @@ $creds = mqtt_connectiondetails();
 // MQTT requires a unique client id
 $client_id = uniqid(gethostname() . "_client");
 
-$cfg = new Config_Lite("$lbpconfigdir/luxtronik2.cfg",LOCK_EX,INI_SCANNER_RAW);
+$cfg = new Config_Lite("$lbpconfigdir/pluginconfig.cfg",LOCK_EX,INI_SCANNER_RAW);
 $ip = $cfg->get("SETTINGS","IP");
 $port = $cfg->get("SETTINGS","PORT");
 $password = $cfg->get("SETTINGS","PASSWORD");
-
-
-
-
-
-
-
-
-
-
-
-$ip = "192.168.111.12";
-$port = 8214;
-$password = 379428;
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Create new Luxtronik Controller Object
 $controller = new LuxController($ip, $port, $password);

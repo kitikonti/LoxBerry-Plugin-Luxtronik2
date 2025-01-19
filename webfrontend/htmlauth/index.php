@@ -115,6 +115,12 @@ if ($cfg->getBool("SETTINGS","CRON")) {
   $cron_checked = "checked=\"\"";
 }
 
+$template_title = "Luxtronik 2";
+$helplink = "http://www.loxwiki.eu/display/LOXBERRY/Luxtronik2";
+$helptemplate = "help.html";
+
+LBWeb::lbheader($template_title, $helplink, $helptemplate);
+
 foreach ($messages as $type => $type_messages) {
   echo "<div class=\"message $type\"><ul>";
   foreach ($type_messages as $type_message) {
@@ -123,18 +129,112 @@ foreach ($messages as $type => $type_messages) {
   echo "</ul></div>";
 }
 
-$template_title = "Luxtronik 2";
-$helplink = "http://www.loxwiki.eu/display/LOXBERRY/Luxtronik2";
-$helptemplate = "help.html";
-
-LBWeb::lbheader($template_title, $helplink, $helptemplate);
-
-// This is the main area for your plugin
 ?>
 
-  <p><?=$L['TOP.ALPHA']?></p>
-  <p><?=$L['TOP.BETA']?></p>
-  <p><?=$L['BOTTOM.GAMMA']?></p>
+  <style>
+    .message {
+      border: 1px solid;
+      margin-bottom: 1em;
+    }
+
+    .message.error {
+      border-color: red;
+      background: #fff5f5;
+      color: red;
+    }
+
+    .message.info {
+      border-color: green;
+      background: #f6fff6;
+      color: green;
+    }
+
+    .luxtronik2-form-submit {
+      margin-top: 4em;
+      display: flex;
+      justify-content: center;
+    }
+
+    .luxtronik2-settings h2 {
+      margin-top: 3em;
+    }
+
+    .luxtronik2-settings h2:first-of-type {
+      margin-top: 0;
+    }
+  </style>
+
+  <form class="luxtronik2-settings" method="post" name="settings">
+    <h2><?= $L['HPSETTINGS.TITLE'] ?></h2>
+
+    <div class="ui-field-contain">
+      <label for="luxtronik2-ip"><?= $L['HPSETTINGS.IP'] ?>:</label>
+      <input type="text" name="luxtronik2-ip" id="luxtronik2-ip" placeholder="192.168.178.1" value="<?= $cfg->get("SETTINGS","IP") ?>">
+    </div>
+
+    <div class="ui-field-contain">
+      <label for="luxtronik2-port"><?= $L['HPSETTINGS.PORT'] ?>:</label>
+      <input type="text" name="luxtronik2-port" id="luxtronik2-port" placeholder="8214" value="<?= $cfg->get("SETTINGS","PORT") ?>">
+    </div>
+
+    <div class="ui-field-contain">
+      <label for="luxtronik2-password"><?= $L['HPSETTINGS.PASSWORD'] ?>:</label>
+      <input type="text" name="luxtronik2-password" id="luxtronik2-password" placeholder="999999" value="<?= $cfg->get("SETTINGS","PASSWORD") ?>">
+    </div>
+
+    <h2><?= $L['PSETTINGS.TITLE'] ?></h2>
+
+    <div class="ui-field-contain">
+      <label for="luxtronik2-cron"><?= $L['PSETTINGS.FETCH'] ?>:</label>
+      <input type="checkbox" data-role="flipswitch" name="luxtronik2-cron" id="luxtronik2-cron" data-on-text="Ja" data-off-text="Nein" data-wrapper-class="luxtronik2-cron" <?= $cron_checked ?>>
+    </div>
+
+    <div class="ui-field-contain luxtronik2-croncycle-wrapper">
+      <label for="luxtronik2-croncycle" class="select"><?= $L['PSETTINGS.CYCLE'] ?>:</label>
+      <select name="luxtronik2-croncycle" id="luxtronik2-croncycle">
+        <?php
+
+        foreach ($croncycle_options as $key => $value) {
+          $text = $value["text"];
+          if ($cfg->get("SETTINGS","CRONCYCLE") ==  $key) {
+            echo "<option value=\"$key\" selected=\"selected\">$text</option>";
+          }
+          else {
+            echo "<option value=\"$key\">$text</option>";
+          }
+        }
+
+        ?>
+      </select>
+    </div>
+
+    <div class="ui-field-contain luxtronik2-form-submit">
+      <input type="submit" value="<?= $L['SETTINGS.SAVE'] ?>" data-icon="check">
+    </div>
+  </form>
+
+  <div class="howto">
+    <?= $L['HOWTO.TEXT'] ?>
+  </div>
+
+  <script>
+
+    $("#luxtronik2-cron").bind("change", function(event, ui) {
+      hideShowCronCycle();
+    });
+
+    hideShowCronCycle();
+
+    function hideShowCronCycle() {
+      if ($("#luxtronik2-cron").prop("checked")) {
+        $(".luxtronik2-croncycle-wrapper").show();
+      }
+      else {
+        $(".luxtronik2-croncycle-wrapper").hide();
+      }
+    }
+
+  </script>
 
 <?php
 // Finally print the footer
