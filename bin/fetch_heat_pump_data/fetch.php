@@ -41,3 +41,5 @@ if ($mqtt->connect(TRUE, NULL, $creds['brokeruser'], $creds['brokerpass'])) {
 else {
   LOGERR("MQTT connection failed");
 }
+
+LOGEND();
