@@ -4,8 +4,17 @@ require __DIR__ . '/vendor/autoload.php';
 require_once "loxberry_io.php";
 require_once "phpMQTT/phpMQTT.php";
 require_once "Config/Lite.php";
+require_once "loxberry_log.php";
 
 use Luxtronic2\LuxController;
+
+// Creates a log object.
+$log = LBLog::newLog([
+  "name" => "Fetch",
+  "filename" => "$lbplogdir/fetch.log",
+  "append" => 1
+]);
+LOGSTART("Fetch request");
 
 // Get the MQTT Gateway connection details from LoxBerry
 $creds = mqtt_connectiondetails();
@@ -26,8 +35,9 @@ $mqtt = new Bluerhinos\phpMQTT($creds['brokerhost'], $creds['brokerport'], $clie
 if ($mqtt->connect(TRUE, NULL, $creds['brokeruser'], $creds['brokerpass'])) {
   $mqtt->publish("luxtronik2", json_encode($controller->getData()), 0, 1);
   $mqtt->close();
+  LOGOK("Fetched data and published to MQTT");
 }
 // Set error message if mqtt connection failed
 else {
-  echo "MQTT connection failed";
+  LOGERR("MQTT connection failed");
 }

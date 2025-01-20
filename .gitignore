@@ -8,7 +8,3 @@ out
 gen
 
 bin/fetch_heat_pump_data/vendor/
-
-
-# Temporary ignores
-notes.md
