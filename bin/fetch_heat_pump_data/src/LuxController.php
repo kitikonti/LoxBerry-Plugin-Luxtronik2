@@ -15,6 +15,7 @@ class LuxController {
     'Anlagenstatus',
     'Wärmemenge',
     'Eingesetzte Energie',
+    'Leistungsaufnahme',
   ];
 
   const listInformationItemNames = [
