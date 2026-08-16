@@ -8,6 +8,8 @@ require_once "loxberry_log.php";
 
 use Luxtronic2\LuxController;
 use Luxtronic2\LuxStatus;
+use Luxtronic2\LuxCalculations;
+use Luxtronic2\LuxException;
 use Luxtronic2\LuxConnectionException;
 use Luxtronic2\LuxProtocolException;
 
@@ -24,6 +26,10 @@ const EXIT_UNEXPECTED       = 5;
 // shortest selectable one is 1 minute) so runs cannot pile up on a controller
 // that is already struggling.
 const LUX_TIMEOUT = 10;
+
+// Seconds to wait for the binary state-code socket. Shorter than the main
+// timeout: it is optional, and both must fit inside the shortest cron cycle.
+const LUX_CODES_TIMEOUT = 5;
 
 // Creates a log object.
 $log = LBLog::newLog([
@@ -77,9 +83,22 @@ try {
   // exposes it. Additive and best-effort: if the inputs are not there the
   // section is simply left out, and nothing the controller sent is touched.
   $status = LuxStatus::compose($data);
-  if ($status !== NULL) {
+
+  // Numeric state codes from the binary protocol, so Loxone logic can switch on
+  // a number instead of comparing German text. Best-effort like the rest of the
+  // status section: a controller that does not serve that socket simply gets no
+  // code fields. INFO rather than WARN - this runs every minute.
+  try {
+    $codes  = (new LuxCalculations($ip, LUX_CODES_TIMEOUT))->read();
+    $status = $status === NULL ? $codes : array_merge($status, $codes);
+  }
+  catch (LuxException $e) {
+    LOGINF('State codes unavailable: ' . $e->getMessage());
+  }
+
+  if (!empty($status)) {
     $data['status'] = LuxController::toMqttKeys($status);
-    LOGINF('Status: ' . $status['Text']);
+    LOGINF('Status: ' . (isset($status['Text']) ? $status['Text'] : 'codes only'));
   }
 
   $payload = json_encode($data);
