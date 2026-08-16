@@ -163,16 +163,29 @@ without deriving it, so its composer line silently expanded to `php /composer.ph
 
 ## Releasing
 
-A release is a version bump in **three** files that must stay in sync, plus a matching git tag:
+There are **two independent channels**, and LoxBerry polls both over raw.githubusercontent from
+`main`. The user picks the channel in the Plugin Management widget:
 
-- `plugin.cfg` → `[PLUGIN] VERSION`
-- `release.cfg` and `prerelease.cfg` → `VERSION`, plus `ARCHIVEURL`/`INFOURL` pointing at the
-  `v<version>` tag on GitHub
+- `release.cfg` → the stable channel, everyone with autoupdate on
+- `prerelease.cfg` → only users who opted into prereleases
 
-LoxBerry's autoupdate polls those two cfg files over raw.githubusercontent, so a bumped
-`plugin.cfg` without a pushed `v<version>` tag hands users a broken download. Version strings
-must parse as valid LoxBerry versions or autoupdate skips the plugin. Follow the existing commit
-style (`Update to version X.Y.Z`) and tag `vX.Y.Z`.
+Each holds `VERSION` plus `ARCHIVEURL`/`INFOURL` pointing at the `v<version>` GitHub tag;
+`plugin.cfg` → `[PLUGIN] VERSION` is what an installed copy reports about itself, so it always
+carries the newest shipped version regardless of channel.
+
+To ship: bump `plugin.cfg` + the target channel's cfg, commit, push `main`, then
+`git tag -a vX.Y.Z && git push origin vX.Y.Z` and `gh release create` (add `--prerelease` for
+the prerelease channel). The tag must exist or the `ARCHIVEURL` 404s — GitHub generates the zip
+from the tag. Version strings must parse as valid LoxBerry versions or autoupdate skips the
+plugin. Commit style: `Update to version X.Y.Z`.
+
+Risky changes go to the prerelease channel first: bump `prerelease.cfg` only and leave
+`release.cfg` behind. Promoting later is a one-line change to `release.cfg` (`VERSION` +
+`ARCHIVEURL`/`INFOURL`) and dropping `--prerelease` from the GitHub release — no new tag.
+
+> **Pending:** 1.3.0 is on the prerelease channel only, awaiting confirmation that the
+> single-GET refactor returns an identical payload on real hardware. `release.cfg` still says
+> 1.2.0. Promote it once verified.
 
 `[AUTHOR] NAME`/`EMAIL` and `[PLUGIN] NAME`/`FOLDER` identify the plugin for updates — changing
 any of them makes LoxBerry treat it as a different plugin and install a second copy alongside.
