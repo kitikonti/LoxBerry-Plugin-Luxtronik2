@@ -440,15 +440,34 @@ class LuxController {
     return strlen($string) > 120 ? substr($string, 0, 120) . '...' : $string;
   }
 
-  private function replaceCharacters($string) {
+  private static function replaceCharacters($string) {
     $search  = ["Ä", "Ö", "Ü", "ä", "ö", "ü", "ß", "´", " ", "Ø", "."];
     $replace = ["Ae", "Oe", "Ue", "ae", "oe", "ue", "ss", "", "_", "ds", ""];
 
     return str_replace($search, $replace, $string);
   }
 
-  private function convertKeyString($string) {
-    return strtolower($this->replaceCharacters($string));
+  private static function convertKeyString($string) {
+    return strtolower(self::replaceCharacters($string));
+  }
+
+  /**
+   * Apply the published-key convention to an array that did not come from the
+   * WebSocket - notably the status lines, which arrive over a different
+   * protocol and so never pass through transformKeys().
+   *
+   * Kept here so there is exactly one definition of what a published key looks
+   * like: get this wrong and the section lands in MQTT as "Status_Zeile1 Code"
+   * instead of "status_zeile1_code".
+   */
+  public static function toMqttKeys(array $array) {
+    $result = [];
+    foreach ($array as $key => $value) {
+      $result[self::convertKeyString($key)] = is_array($value)
+        ? self::toMqttKeys($value)
+        : $value;
+    }
+    return $result;
   }
 
   /**
@@ -464,7 +483,7 @@ class LuxController {
     foreach (array_keys($array) as $key):
       $value = &$array[$key];
       unset($array[$key]);
-      $transformedKey = $this->convertKeyString($key);
+      $transformedKey = self::convertKeyString($key);
       if (isset($seen[$transformedKey])) {
         $this->warnings[] = sprintf(
           'MQTT key collision: "%s" and "%s" both become "%s%s"; only the last '

@@ -86,7 +86,10 @@ try {
   // otherwise fill the log with warnings for a value it never had.
   try {
     $status = (new LuxStatusReader($ip, LUX_STATUS_TIMEOUT))->read();
-    $data['Status'] = $status;
+    // getData() already normalised its own keys, so this section has to be
+    // normalised explicitly - otherwise it reaches Loxone as "Status_Zeile1
+    // Code", spaces and capitals included.
+    $data['status'] = LuxController::toMqttKeys($status);
     LOGINF('Controller status: ' . $status['Zeile1'] . ' / ' . $status['Zeile3']);
   }
   catch (LuxException $e) {
