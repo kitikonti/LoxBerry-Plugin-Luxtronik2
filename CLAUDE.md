@@ -200,6 +200,32 @@ Every field is omitted rather than guessed when its input is missing, unparseabl
 future. **Timezone:** the timestamp is parsed in LoxBerry's local timezone, which is correct as
 long as the controller's clock is also local — do not "fix" this by forcing UTC.
 
+### LuxCalculations — numeric state codes (binary protocol)
+
+German text is awkward to switch on in Loxone Config, so two enum codes are read from the binary
+protocol (port 8889, request 3004): **index 80** `WP_BZ_akt` (current operation mode) and
+**index 110** `Switchoff_file_Nr4` (most recent shutdown reason). Published as code + label.
+
+Index 80 is the authoritative running/standing signal and is passed into `LuxStatus::compose()`.
+It reports an active mode during the *Pumpenvorlauf* phase, where the compressor is still off and
+`Betriebszustand` alone cannot tell "standing" from "about to start" — the controller shows a
+third state there, `Wärmepumpe kommt / in mm:ss`, whose timer counts **down**.
+
+**Verified by watching it change**, not by one reading: 80 went `5` (Keine Anforderung, pump
+standing) → `1` (Warmwasser) when hot water was forced, while `Betriebszustand` went `-` → `WW`.
+That is the standard this file's earlier `HauptMenuStatus` mistake failed — a field frozen at a
+plausible value is indistinguishable from a live one until you see it move. **Do not add an index
+here without observing a transition.**
+
+`Warmwasser` and `Keine Anforderung` are confirmed verbatim against the display. Codes outside
+the table degrade to `Code n`: this controller reports shutdown reason **26**, which
+python-luxtronik's table does not list at all — the same robustness argument that makes text
+pass-through right for `status_grund`.
+
+Not obtainable, checked and abandoned: a "running since" timer. `Time_WPein_akt` (index 67 /
+`ablaufzeiten.wp_seit`) sits frozen at `00:00:09`, and index 73 counts compressor *standstill*.
+Only the standing duration is derivable.
+
 ### Cronjob handling
 
 `cron/crontab` must exist in the archive — its *content* is irrelevant, but shipping it is the

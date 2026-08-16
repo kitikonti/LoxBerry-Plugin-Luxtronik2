@@ -30,14 +30,22 @@ class LuxStatus {
   /**
    * Build the status section from an already key-transformed payload.
    *
-   * @param array $data  the array getData() returned
-   * @param int   $now   unix timestamp, injectable so this can be tested
+   * @param array $data      the array getData() returned
+   * @param int   $now        unix timestamp, injectable so this can be tested
+   * @param string $modeLabel  the human label for that code, used as the reason
+   *   while running so the text reads like the display
+   * @param int   $modeCode   ID_WEB_WP_BZ_akt from LuxCalculations, when the
+   *   binary socket answered. Authoritative: it reports an active mode during
+   *   the Pumpenvorlauf phase, where the compressor is still off and
+   *   Betriebszustand alone cannot tell "standing" from "about to start".
    * @return array|null  null when there is not enough information
    */
-  public static function compose(array $data, $now = NULL) {
+  public static function compose(array $data, $now = NULL, $modeCode = NULL, $modeLabel = NULL) {
     $now = $now === NULL ? time() : $now;
 
-    $running = self::isRunning($data);
+    $running = $modeCode !== NULL
+      ? ((int) $modeCode !== LuxCalculations::MODE_NO_REQUEST)
+      : self::isRunning($data);
     if ($running === NULL) {
       return NULL;
     }
@@ -50,8 +58,11 @@ class LuxStatus {
 
     // The reason: while running the controller names the active mode, while
     // standing it is whatever last shut it down.
+    // While running the mode label matches the display exactly ("Warmwasser"),
+    // where Betriebszustand only abbreviates it ("WW") - so prefer the label
+    // and fall back to the WebSocket when the binary socket did not answer.
     $reason = $running
-      ? self::value($data, ['anlagenstatus', 'betriebszustand'])
+      ? ($modeLabel !== NULL ? $modeLabel : self::value($data, ['anlagenstatus', 'betriebszustand']))
       : self::value($data, ['abschaltungen', 0, 'name']);
     if ($reason !== NULL) {
       // Passed through verbatim. The controller abbreviates in the Abschaltungen

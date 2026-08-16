@@ -30,6 +30,9 @@ class LuxCalculations {
 
   const READ_CALCULATIONS = 3004;
 
+  /** The one mode meaning "not working"; every other code is an active mode. */
+  const MODE_NO_REQUEST = 5;
+
   const IDX_OPERATION_MODE = 80;
   const IDX_LAST_SWITCHOFF = 110;
 
@@ -39,10 +42,14 @@ class LuxCalculations {
   /** Rejects a reply that is not actually this protocol (272 on FW V3.90.3). */
   const MAX_VALUES = 2000;
 
-  /** ID_WEB_WP_BZ_akt. Mirrors the third line of the controller display. */
+  /**
+   * ID_WEB_WP_BZ_akt. Mirrors the third line of the controller display.
+   * "Keine Anforderung" and "Warmwasser" are confirmed verbatim against a real
+   * display; the rest follow the same naming.
+   */
   const OPERATION_MODES = [
     0 => 'Heizbetrieb',
-    1 => 'Brauchwasser',
+    1 => 'Warmwasser',
     2 => 'Schwimmbad/Solar',
     3 => 'EVU-Sperre',
     4 => 'Abtauen',
