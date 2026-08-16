@@ -1,0 +1,183 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A LoxBerry plugin (`luxtronik2`) that polls a Luxtronik 2 heat pump controller over its
+WebSocket protocol and publishes the readings to the LoxBerry MQTT broker under the
+`luxtronik2` topic, from where the MQTT Gateway relays them to a Loxone Miniserver.
+See <https://wiki.loxberry.de/plugins/luxtronik2/start>.
+
+The repo *is* the plugin archive — a LoxBerry plugin is just a ZIP with a fixed directory
+layout, and installation scatters these directories across the LoxBerry tree:
+
+| Repo path | Installed to | PHP global |
+|---|---|---|
+| `bin/` | `$LBPBIN/luxtronik2` (`/opt/loxberry/bin/plugins/…`) | `$lbpbindir` |
+| `config/` | `$LBPCONFIG/luxtronik2` | `$lbpconfigdir` |
+| `webfrontend/htmlauth/` | `$LBPHTMLAUTH/luxtronik2` (password-protected CGI) | `$lbphtmlauthdir` |
+| `templates/lang/` | `$LBPTEMPL/luxtronik2` | `$lbptemplatedir` |
+| `cron/crontab` | `$LBHOMEDIR/system/cron/cron.d/luxtronik2` | — |
+| `icons/` | system icon dir (`icon.svg` wins over the PNGs on LB ≥ 4.0) | — |
+
+There is no build step and no test suite. Reference for everything below:
+[Plugin für den LoxBerry entwickeln](https://wiki.loxberry.de/entwickler/plugin_fur_den_loxberry_entwickeln_ab_version_1x/start).
+
+## PHP 7.4 constraint (important)
+
+LoxBerry runs PHP 7.4 — even LoxBerry 4.0 (Debian 13, 2026) keeps
+`update-alternatives --set php /usr/bin/php7.4` and only co-installs PHP 8.4 for testing. Write
+7.4-compatible code; don't add PHP 8 syntax.
+
+The pin is on the *library*, not the language: `phrity/websocket` is held at `^1.0` (lock:
+**1.7.3**) because 2.x changes the `Client` API — options array → setters, `receive()` returns a
+`Message` instead of a string, `close()` reconnects instead of closing, exceptions move to
+`WebSocket\Exception\`. Note 1.7.3 itself declares `"php": "^7.4 | ^8.0"`, so the dependency is
+*not* what would block a PHP 8 move. `LuxController.php` carries the 2.x equivalent as a comment
+at each affected line.
+
+## Local development
+
+DDEV provides a PHP 7.4 container (`.ddev/config.yaml`, project name `lux`):
+
+```bash
+ddev start
+ddev composer install -d bin/fetch_heat_pump_data   # or: ddev exec php bin/composer.phar install --working-dir=bin/fetch_heat_pump_data
+```
+
+`bin/composer.phar` is committed because LoxBerry itself invokes it from `postinstall.sh`;
+`bin/fetch_heat_pump_data/vendor/` is gitignored.
+
+### Testing parsing changes without a heat pump
+
+There is no test suite, but `LuxController` is pure parsing and can be exercised offline. Real
+protocol captures live at
+[tombrk/luxtronik2-exporter/proto](https://github.com/tombrk/luxtronik2-exporter/tree/master/proto)
+(`login.xml` = the `<Navigation>` reply, `get.xml` = the `<Content>` reply). Stub
+`WebSocket\Client` with a class that replays those frames, run it under PHP 7.4
+(`docker run --rm -v "$PWD":/w -w /w php:7.4-cli php …` — the host's PHP has no simplexml), and
+diff `json_encode()` of the result against the previous version's. That is how the single-GET
+refactor was shown to be payload-identical. Caveat: tombrk's `login.xml` has only one top-level
+`<item>`, which simplexml collapses — real controllers report several, so synthesise a
+multi-node Navigation when testing the id lookup.
+
+### Running for real
+
+Neither entry point runs outside a LoxBerry host — both `require` the LoxBerry PHP SDK
+(`loxberry_io.php`, `loxberry_log.php`, `loxberry_web.php`, `Config/Lite.php`,
+`phpMQTT/phpMQTT.php`, all on LoxBerry's include path) and rely on the `$lbp*dir` globals.
+End-to-end testing means installing the plugin on a LoxBerry box and running
+`php $lbpbindir/fetch_heat_pump_data/fetch.php`. Its log lands in `$lbplogdir/fetch.log` —
+that directory is a RAM disk wiped on every boot, which is why `LBLog::newLog()` must create
+the file rather than the plugin shipping one. `CUSTOM_LOGLEVELS=true` in `plugin.cfg` means
+the user picks a loglevel in the Plugin Management widget.
+
+Never hardcode `/opt/loxberry` — the installer warns the user when it finds that string in any
+shipped text file. Use the `$LBP*` environment variables (shell), the `$lbp*dir` globals (PHP),
+or `REPLACELBHOMEDIR`-style tags, which the installer substitutes in *all* shipped text files.
+
+## Architecture
+
+Two entry points with no shared code (see the README TODO — composer is wired up only under
+`bin/`, which is why the web frontend can't reuse `LuxController` to validate credentials):
+
+- **`bin/fetch_heat_pump_data/fetch.php`** — the cron-driven data path. Reads IP/port/password
+  from `$lbpconfigdir/pluginconfig.cfg`, asks `LuxController` for a data array, and publishes it
+  as a single retained JSON payload to topic `luxtronik2`, using broker host/port/credentials
+  from `mqtt_connectiondetails()` rather than any plugin-local broker config.
+- **`webfrontend/htmlauth/index.php`** — the settings page, and the only writer of the plugin's
+  cronjob (see below).
+
+### Data flow to Loxone
+
+`config/mqtt_subscriptions.cfg` (one line: `luxtronik2/#`) is an *injected subscription* — the
+MQTT Gateway reads that file out of every plugin's config dir and subscribes on the plugin's
+behalf, no user setup required. The Gateway then flattens the topic tree plus the JSON body into
+underscore-joined names (`luxtronik2_temperaturen_vorlauf`), and those are what the Miniserver
+sees. Ref: [MQTT am LoxBerry](https://wiki.loxberry.de/entwickler/mqtt/start).
+
+This is why `LuxController::transformKeys()` matters: it rewrites every key recursively
+(umlauts transliterated, spaces → `_`, `.` and `´` dropped, lowercased), so `Wärmemenge` and
+`Betriebsstunden` become `waermemenge` / `betriebsstunden`. **Changing `replaceCharacters()`
+renames Miniserver inputs in every existing installation** — treat it as a breaking change.
+
+### LuxController (`bin/fetch_heat_pump_data/src/LuxController.php`)
+
+Namespace `Luxtronic2` — note the spelling (`c`, not `k`) in the namespace, the PSR-4 mapping and
+the composer package name, while the plugin name, MQTT topic and repo use `luxtronik2`.
+
+Protocol flow in `getData()`: open `ws://ip:port` with subprotocol header `Lux_WS`, send
+`LOGIN;<password>`, receive the `<Navigation>` tree, find the id of the `Informationen` node,
+then issue **one** `GET;<id>` — that returns the whole subtree with every section's values in a
+single `<Content>` document. Don't reintroduce a GET per section; that was the old shape and
+cost ~11 round-trips per poll against a controller whose web server hangs under sustained load.
+
+Item ids are heap pointers valid **only for the current connection** — never cache them across
+runs. Always LOGIN → parse Navigation → GET.
+
+Failures surface as `LuxConnectionException` (transient: pump off, wrong address, timeout) or
+`LuxProtocolException` (sticky: firmware/language changed the section names). `fetch.php` maps
+those to log severity and exit codes and, critically, **publishes nothing on failure** so the
+last good retained message survives rather than being overwritten with `null`. Non-fatal
+oddities go to `getWarnings()` instead of throwing, keeping `LuxController` free of any LoxBerry
+dependency.
+
+What gets exported is keyed off the German section names the controller reports:
+`simpleInformationItemNames` (flat name→value maps), `listInformationItemNames` (error/shutdown
+logs, mapped to `{name, uhrzeit}` rows), plus special cases for `GLT` (single item) and
+`Energiemonitor` (recursed into). **These constants are the feature surface** — adding a data
+point to the payload is usually just adding its German label to the right array. Missing/empty
+values (which parse as arrays) are emitted as `-`, never null.
+
+### Cronjob handling
+
+`cron/crontab` must exist in the archive — its *content* is irrelevant, but shipping it is the
+precondition for the whole mechanism, so don't delete it as dead weight. It is installed to
+`$LBHOMEDIR/system/cron/cron.d/luxtronik2`, which the plugin may read but, for security, may not
+write. `update_crontab()` in `index.php` therefore writes a temp file and calls
+`sudo $lbhomedir/sbin/installcrontab.sh luxtronik2 <tmpfile>`; this is a standard LoxBerry sbin
+routine, so no plugin `sudoers/` file is needed. Syntax is `/etc/cron.d`-style with a user field,
+and the user must be `loxberry` (installcrontab rewrites it to `loxberry` regardless). The
+installed crontab survives plugin updates and is removed on uninstall. Allowed intervals live in
+`$croncycle_options`; adding one needs a matching `CRONCYCLE.*` key in both language files.
+Ref: [Eigene Cronjobs im Plugin-Code pflegen](https://wiki.loxberry.de/entwickler/plugin_fur_den_loxberry_entwickeln_ab_version_1x/eigene_cronjobs_im_plugin_code_pflegen).
+
+## Install / upgrade hooks
+
+Order enforced by the installer (upgrade-only steps marked ∆):
+`plugin.cfg` → `preroot.sh` → ∆`preupgrade.sh` → ∆**delete of the old installation** → file
+copying → `postinstall.sh` → ∆`postupgrade.sh` → `postroot.sh`. Hooks run as user `loxberry`
+and receive `<tempfolder> <name> <folder> <version> <basefolder>`; exit 1 warns, exit 2 aborts
+the installation.
+
+Because the old installation is wiped mid-upgrade, `preupgrade.sh`/`postupgrade.sh` copy
+`config/plugins/luxtronik2/` out to `/tmp` and back — that is what preserves user settings.
+`postinstall.sh` runs `composer install`, and since it runs on upgrades too, dependencies are
+always reinstalled after the wipe.
+
+Only the `LBP*`/`LBS*` variables (`LBPBIN`, `LBPCONFIG`, …) come from `/etc/environment`; the
+short `PBIN`/`PCONFIG` forms are local variables each script must derive itself
+(`PBIN=$LBPBIN/$PDIR`). Both hook scripts now do — `postupgrade.sh` previously used `$PBIN`
+without deriving it, so its composer line silently expanded to `php /composer.phar`.
+
+## Releasing
+
+A release is a version bump in **three** files that must stay in sync, plus a matching git tag:
+
+- `plugin.cfg` → `[PLUGIN] VERSION`
+- `release.cfg` and `prerelease.cfg` → `VERSION`, plus `ARCHIVEURL`/`INFOURL` pointing at the
+  `v<version>` tag on GitHub
+
+LoxBerry's autoupdate polls those two cfg files over raw.githubusercontent, so a bumped
+`plugin.cfg` without a pushed `v<version>` tag hands users a broken download. Version strings
+must parse as valid LoxBerry versions or autoupdate skips the plugin. Follow the existing commit
+style (`Update to version X.Y.Z`) and tag `vX.Y.Z`.
+
+`[AUTHOR] NAME`/`EMAIL` and `[PLUGIN] NAME`/`FOLDER` identify the plugin for updates — changing
+any of them makes LoxBerry treat it as a different plugin and install a second copy alongside.
+
+## Translations
+
+`templates/lang/language_de.ini` and `language_en.ini`, read via `LBSystem::readlanguage()` into
+`$L`; English is the fallback language. Every new UI string needs a key in both files.

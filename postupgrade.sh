@@ -13,9 +13,13 @@ cp -p -v -r /tmp/$ARGV1\_upgrade/config/* $ARGV5/config/plugins/$ARGV3/
 echo "<INFO> Remove temporary folders"
 rm -r /tmp/$ARGV1\_upgrade
 
+# Only the LBP* variables come from /etc/environment; the short PBIN form is a
+# local variable every plugin script derives itself (see postinstall.sh).
+PBIN=$LBPBIN/$ARGV3
+
 # Update composer packages
 echo "<INFO> Update composer packages."
-php $PBIN/composer.phar install --working-dir=$PBIN/fetch_heat_pump_data
+php $PBIN/composer.phar install --working-dir=$PBIN/fetch_heat_pump_data --no-dev --optimize-autoloader
 
 # Exit with Status 0
 exit 0

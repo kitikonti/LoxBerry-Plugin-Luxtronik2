@@ -34,7 +34,7 @@ PVERSION=$4   # Forth argument is Plugin version
               # Base folder of LoxBerry
 
 # Combine them with /etc/environment
-PCGI=$LBPCGI/$PDIR
+PHTMLAUTH=$LBPHTMLAUTH/$PDIR
 PHTML=$LBPHTML/$PDIR
 PTEMPL=$LBPTEMPL/$PDIR
 PDATA=$LBPDATA/$PDIR
@@ -48,7 +48,7 @@ echo "<INFO> Temporary folder is: $TEMPDIR"
 echo "<INFO> (Short) Name is: $PSHNAME"
 echo "<INFO> Installation folder is: $ARGV3"
 echo "<INFO> Plugin version is: $ARGV4"
-echo "<INFO> Plugin CGI folder is: $PCGI"
+echo "<INFO> Plugin HTMLAUTH folder is: $PHTMLAUTH"
 echo "<INFO> Plugin HTML folder is: $PHTML"
 echo "<INFO> Plugin Template folder is: $PTEMPL"
 echo "<INFO> Plugin Data folder is: $PDATA"
@@ -58,8 +58,11 @@ echo "<INFO> Plugin SBIN folder is: $PSBIN"
 echo "<INFO> Plugin BIN folder is: $PBIN"
 
 # Install composer packages
+# composer.lock is shipped with the plugin, so this resolves to the exact
+# versions it was tested with. --no-dev keeps dev tooling off the Pi and
+# --optimize-autoloader trades a little install time for faster cron runs.
 echo "<INFO> Install required composer packages."
-php $PBIN/composer.phar install --working-dir=$PBIN/fetch_heat_pump_data
+php $PBIN/composer.phar install --working-dir=$PBIN/fetch_heat_pump_data --no-dev --optimize-autoloader
 
 # Exit with Status 0
 exit 0

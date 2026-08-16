@@ -7,6 +7,22 @@ require_once "Config/Lite.php";
 require_once "loxberry_log.php";
 
 use Luxtronic2\LuxController;
+use Luxtronic2\LuxConnectionException;
+use Luxtronic2\LuxProtocolException;
+
+// Exit codes. The crontab sends stdout/stderr to /dev/null, so these only show
+// up when the script is run by hand - the log is the channel that matters.
+const EXIT_OK               = 0;
+const EXIT_NOT_CONFIGURED   = 1;
+const EXIT_HEATPUMP_OFFLINE = 2;
+const EXIT_PROTOCOL         = 3;
+const EXIT_MQTT             = 4;
+const EXIT_UNEXPECTED       = 5;
+
+// Seconds to wait for the heat pump. Must stay well below the cron cycle (the
+// shortest selectable one is 1 minute) so runs cannot pile up on a controller
+// that is already struggling.
+const LUX_TIMEOUT = 10;
 
 // Creates a log object.
 $log = LBLog::newLog([
@@ -16,30 +32,100 @@ $log = LBLog::newLog([
 ]);
 LOGSTART("Fetch request");
 
-// Get the MQTT Gateway connection details from LoxBerry
-$creds = mqtt_connectiondetails();
-// MQTT requires a unique client id
-$client_id = uniqid(gethostname() . "_client");
+$exitCode   = EXIT_OK;
+$controller = NULL;
 
-$cfg = new Config_Lite("$lbpconfigdir/pluginconfig.cfg",LOCK_EX,INI_SCANNER_RAW);
-$ip = $cfg->get("SETTINGS","IP");
-$port = $cfg->get("SETTINGS","PORT");
-$password = $cfg->get("SETTINGS","PASSWORD");
+try {
+  // ---------------------------------------------------------------- config --
+  try {
+    $cfg = new Config_Lite("$lbpconfigdir/pluginconfig.cfg", LOCK_EX, INI_SCANNER_RAW);
+  }
+  catch (Throwable $e) {
+    // Config_Lite throws when the file is missing or unreadable.
+    throw new InvalidArgumentException(
+      "Cannot read $lbpconfigdir/pluginconfig.cfg: " . $e->getMessage()
+    );
+  }
+  // Always pass a default: Config_Lite::get() throws on a missing key otherwise.
+  $ip       = trim($cfg->get("SETTINGS", "IP", ""));
+  $port     = trim($cfg->get("SETTINGS", "PORT", ""));
+  $password = $cfg->get("SETTINGS", "PASSWORD", "");
 
-// Create new Luxtronik Controller Object
-$controller = new LuxController($ip, $port, $password);
+  if ($ip === "" || $port === "") {
+    throw new InvalidArgumentException(
+      "Heat pump IP and port are not configured yet - open the plugin settings "
+      . "page. Disable the cronjob there to stop this message."
+    );
+  }
 
-// Create new phpMQTT Object
-$mqtt = new Bluerhinos\phpMQTT($creds['brokerhost'], $creds['brokerport'], $client_id);
-// Connect to mqtt broker and publish loxtronik data
-if ($mqtt->connect(TRUE, NULL, $creds['brokeruser'], $creds['brokerpass'])) {
-  $mqtt->publish("luxtronik2", json_encode($controller->getData()), 0, 1);
-  $mqtt->close();
-  LOGOK("Fetched data and published to MQTT");
+  // ------------------------------------------------------------- heat pump --
+  $controller = new LuxController($ip, $port, $password, LUX_TIMEOUT);
+  $started    = microtime(TRUE);
+  $data       = $controller->getData();
+  LOGINF(sprintf(
+    'Read %d sections from %s:%s in %.1f s',
+    count($data), $ip, $port, microtime(TRUE) - $started
+  ));
+
+  $payload = json_encode($data);
+  if ($payload === FALSE) {
+    throw new RuntimeException(
+      'Could not encode the payload as JSON: ' . json_last_error_msg()
+    );
+  }
+
+  // ------------------------------------------------------------------ MQTT --
+  // Only now, with data in hand: a failed fetch must not leave a broker
+  // connection open, and there is nothing to publish anyway.
+  $creds = mqtt_connectiondetails();
+  if (empty($creds['brokerhost'])) {
+    throw new InvalidArgumentException(
+      'No MQTT broker configured in LoxBerry - check the MQTT Gateway settings.'
+    );
+  }
+  // MQTT requires a unique client id
+  $client_id = uniqid(gethostname() . "_client");
+  $mqtt = new Bluerhinos\phpMQTT($creds['brokerhost'], $creds['brokerport'], $client_id);
+  // Connect to mqtt broker and publish loxtronik data
+  if ($mqtt->connect(TRUE, NULL, $creds['brokeruser'], $creds['brokerpass'])) {
+    $mqtt->publish("luxtronik2", $payload, 0, 1);
+    $mqtt->close();
+    LOGOK("Fetched data and published to MQTT");
+  }
+  // Set error message if mqtt connection failed
+  else {
+    LOGERR("MQTT connection to {$creds['brokerhost']}:{$creds['brokerport']} failed");
+    $exitCode = EXIT_MQTT;
+  }
 }
-// Set error message if mqtt connection failed
-else {
-  LOGERR("MQTT connection failed");
+catch (InvalidArgumentException $e) {
+  LOGWARN($e->getMessage());
+  $exitCode = EXIT_NOT_CONFIGURED;
+}
+catch (LuxConnectionException $e) {
+  // Expected and transient. The previous retained message stays on the broker;
+  // it is now stale, which is why the timestamp of this log line matters.
+  LOGERR($e->getMessage());
+  $exitCode = EXIT_HEATPUMP_OFFLINE;
+}
+catch (LuxProtocolException $e) {
+  // Retrying will not help - a firmware or language change moved things.
+  LOGCRIT($e->getMessage());
+  $exitCode = EXIT_PROTOCOL;
+}
+catch (Throwable $e) {
+  LOGCRIT(get_class($e) . ': ' . $e->getMessage()
+    . ' in ' . $e->getFile() . ':' . $e->getLine());
+  $exitCode = EXIT_UNEXPECTED;
+}
+
+// Non-fatal oddities noticed while parsing, on the success and failure paths.
+if ($controller !== NULL) {
+  foreach ($controller->getWarnings() as $warning) {
+    LOGWARN($warning);
+  }
 }
 
 LOGEND();
+// exit() does not run finally blocks, so it goes last, outside the try.
+exit($exitCode);

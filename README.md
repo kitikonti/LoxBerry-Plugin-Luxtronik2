@@ -5,9 +5,21 @@ A LoxBerry Plugin: https://wiki.loxberry.de/plugins/luxtronik2/start
 https://github.com/kitikonti/LoxBerry-Plugin-Luxtronik2
 
 ## Note when converting from PHP7 to PHP8
-This plugin is currently developed for PHP7.4. As soon as Loxberry is converted to PHP8, some of the code or the packages used must be adapted. Specifically, this affects the package **phrity/websocket** which supports PHP7.x up to version 1.x and only supports PHP8.x from version 2.x onwards. The **Websocket\Client** Class provided by this package is used in **bin/fetch_heat_pump_data/src/LuxController.php**. This file already contains comments on what needs to be changed when switching to PHP8.x.
+This plugin is developed for PHP 7.4, which is still what LoxBerry runs: even
+LoxBerry 4.0 (Debian 13) sets `update-alternatives --set php /usr/bin/php7.4` and
+only co-installs PHP 8.4 for testing. So there is no migration pressure yet.
+
+The dependency itself is *not* the blocker. The pinned **phrity/websocket 1.7.3**
+declares `"php": "^7.4 | ^8.0"` and runs fine on PHP 8 — the 1.x → 2.x split is an
+**API** change, not a PHP version gate. In 2.x the constructor options array is
+replaced by setters (`addHeader()`, `setTimeout()`), `receive()` returns a
+`Message` object instead of a string, `close()` reconnects instead of just
+closing, and the exceptions move into the `WebSocket\Exception\` namespace.
+**bin/fetch_heat_pump_data/src/LuxController.php** carries a comment at each
+affected line describing the 2.x equivalent.
 
 ## TODO
-* Validate credentials on save.
-* Right now the plugin only fetches data. Maybe sending date is also possible.
-* Update the composer integration and how composer packages are installed. Right now I only use composer packages in the /bin folder. I assume there is a Loxberry way to use composer packages, but have not found any documentation. To validate the credentials for example it would be required to use the same packages and classes in the /webfrontend folder.
+* Right now the plugin only fetches data. Maybe sending data is also possible —
+  note that the controller accepts *any* password for a read-only login, so the
+  configured password only starts to matter once `SET`/`SAVE` are used.
+* Update the composer integration and how composer packages are installed. Right now I only use composer packages in the /bin folder. I assume there is a Loxberry way to use composer packages, but have not found any documentation. To reach the heat pump from the settings page, for example, it would be required to use the same packages and classes in the /webfrontend folder.
