@@ -131,6 +131,13 @@ last good retained message survives rather than being overwritten with `null`. N
 oddities go to `getWarnings()` instead of throwing, keeping `LuxController` free of any LoxBerry
 dependency.
 
+**Duplicate child names are real.** Firmwares report two children with the same name in one
+section — `HD` as both a digital input (`Aus`) and a pressure (`9.45 bar`), `HUP` as on/off and
+as a modulation `%`, `Wärmepumpen Typ` twice. Confirmed on two independent firmwares, including
+the FW 3.82.4 reference capture. The last occurrence keeps the bare key so existing Miniserver
+inputs never move; earlier ones get `_1`, `_2`, … suffixes. Don't "simplify" that back into a
+plain assignment — it silently drops values.
+
 What gets exported is keyed off the German section names the controller reports:
 `simpleInformationItemNames` (flat name→value maps), `listInformationItemNames` (error/shutdown
 logs, mapped to `{name, uhrzeit}` rows), plus special cases for `GLT` (single item) and

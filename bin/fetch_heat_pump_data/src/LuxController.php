@@ -325,12 +325,40 @@ class LuxController {
     $currentDataArray = [];
 
     if (in_array($currentDataName, self::simpleInformationItemNames, TRUE)) {
-      foreach (self::childItems($data) as $currentDataItem) {
+      $items = self::childItems($data);
+
+      // Some firmwares report two children with the SAME name in one section:
+      // "HD" appears both as a digital input (Aus/Ein) and as a pressure
+      // (9.45 bar), "HUP" as on/off and as a modulation percentage. They used
+      // to collapse onto one key and the later one silently won, losing the
+      // other value entirely.
+      //
+      // The LAST occurrence keeps the bare key, so every Miniserver input keeps
+      // the value it has always had; earlier occurrences get a _1, _2, ...
+      // suffix. That makes this purely additive - nothing moves, the previously
+      // discarded values simply start being published.
+      $occurrences = [];
+      foreach ($items as $currentDataItem) {
+        $name = self::nodeName($currentDataItem);
+        $occurrences[$name] = isset($occurrences[$name]) ? $occurrences[$name] + 1 : 1;
+      }
+
+      $index = [];
+      foreach ($items as $currentDataItem) {
         // Deliberately NOT trimmed: a child name is a Miniserver input name, and
         // replaceCharacters() turns a trailing space into a trailing '_'.
         // Trimming here would rename inputs in existing installations.
-        $currentDataArray[self::nodeName($currentDataItem)] =
-          self::nodeValue($currentDataItem);
+        $name = self::nodeName($currentDataItem);
+        $key  = $name;
+        if ($occurrences[$name] > 1) {
+          $index[$name] = isset($index[$name]) ? $index[$name] + 1 : 1;
+          if ($index[$name] < $occurrences[$name]) {
+            // rtrim only on the suffixed key - it is new, so it cannot move an
+            // existing input, and "HD _1" would otherwise become "hd__1".
+            $key = rtrim($name) . '_' . $index[$name];
+          }
+        }
+        $currentDataArray[$key] = self::nodeValue($currentDataItem);
       }
       $this->dataArray[$currentDataName] = $currentDataArray;
     }
