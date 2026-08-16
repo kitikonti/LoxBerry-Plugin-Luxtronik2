@@ -191,9 +191,6 @@ Risky changes go to the prerelease channel first: bump `prerelease.cfg` only and
 `release.cfg` behind. Promoting later is a one-line change to `release.cfg` (`VERSION` +
 `ARCHIVEURL`/`INFOURL`) and dropping `--prerelease` from the GitHub release — no new tag.
 
-> **Pending:** 1.3.1 is on the prerelease channel only, awaiting confirmation that the
-> single-GET refactor returns an identical payload on real hardware. `release.cfg` still says
-> 1.2.0. Promote it once verified.
 
 `[AUTHOR] NAME`/`EMAIL` and `[PLUGIN] NAME`/`FOLDER` identify the plugin for updates — changing
 any of them makes LoxBerry treat it as a different plugin and install a second copy alongside.
