@@ -7,6 +7,7 @@ require_once "Config/Lite.php";
 require_once "loxberry_log.php";
 
 use Luxtronic2\LuxController;
+use Luxtronic2\LuxStatus;
 use Luxtronic2\LuxConnectionException;
 use Luxtronic2\LuxProtocolException;
 
@@ -71,6 +72,15 @@ try {
     'Read %d sections from %s:%s in %.1f s',
     count($data), $ip, $port, microtime(TRUE) - $started
   ));
+
+  // The controller's display line, composed from the payload - neither protocol
+  // exposes it. Additive and best-effort: if the inputs are not there the
+  // section is simply left out, and nothing the controller sent is touched.
+  $status = LuxStatus::compose($data);
+  if ($status !== NULL) {
+    $data['status'] = LuxController::toMqttKeys($status);
+    LOGINF('Status: ' . $status['Text']);
+  }
 
   $payload = json_encode($data);
   if ($payload === FALSE) {

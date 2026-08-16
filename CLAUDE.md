@@ -177,6 +177,29 @@ and `ausgaenge_verdichter` says whether it is running. Composing it is a judgeme
 maintainer — the plugin would be inventing a field the controller never sent — so it belongs in
 Loxone logic unless someone decides otherwise.
 
+### LuxStatus — the composed status line (derived, not read)
+
+`LuxStatus::compose()` builds the display line from the payload, because neither protocol
+exposes it (see above). This is the one place the plugin publishes something the controller
+never sent, so it is kept explicit and conservative:
+
+- `status_laeuft` (0/1) is the field Loxone logic should switch on, not the text
+- `status_zeile1` — "Wärmepumpe läuft" / "Wärmepumpe steht"
+- `status_grund` — `anlagenstatus.betriebszustand` while running, `abschaltungen[0].name` while
+  standing. Passed through verbatim, so it reads the controller's abbreviated `keine Anf.`
+  rather than the display's `Keine Anforderung`
+- `status_seit` / `status_seit_sekunden` — **only while standing**, from
+  `abschaltungen[0].uhrzeit`. Nothing in either protocol records when a *run* started, so the
+  running case deliberately has no timer rather than a fabricated one
+- `status_text` — the three parts on one line
+
+Running is decided by `betriebszustand` being non-empty (it carries the active mode and is empty
+whenever there is no demand), falling back to `ausgaenge.verdichter`.
+
+Every field is omitted rather than guessed when its input is missing, unparseable, or in the
+future. **Timezone:** the timestamp is parsed in LoxBerry's local timezone, which is correct as
+long as the controller's clock is also local — do not "fix" this by forcing UTC.
+
 ### Cronjob handling
 
 `cron/crontab` must exist in the archive — its *content* is irrelevant, but shipping it is the
