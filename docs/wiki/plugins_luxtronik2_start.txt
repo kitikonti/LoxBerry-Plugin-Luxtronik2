@@ -1,0 +1,210 @@
+====== Luxtronik 2 ======
+
+Das Plugin liest die Daten einer Wärmepumpe mit **Luxtronik 2 Regelung** (Alpha Innotec,
+Novelan, Buderus u. a.) aus und stellt sie per MQTT im Loxone Miniserver zur Verfügung.
+
+++++ Version History... |
+
+[[https://github.com/kitikonti/LoxBerry-Plugin-Luxtronik2/releases|Siehe GitHub Releases]]
+
+++++
+
+----
+
+===== Funktion des Plugins =====
+
+Das Plugin verbindet sich zyklisch mit dem Webinterface der Wärmepumpe, liest den kompletten
+Bereich **Informationen** aus und veröffentlicht die Werte als JSON auf dem MQTT-Topic
+''luxtronik2''. Das MQTT Gateway von LoxBerry verteilt die Werte anschließend an den Miniserver.
+
+  * Alle Werte, die die Regelung unter //Informationen// anzeigt: Temperaturen, Eingänge,
+    Ausgänge, Ablaufzeiten, Betriebsstunden, Anlagenstatus, Wärmemenge, Leistungsaufnahme,
+    Fehlerspeicher und Abschaltungen
+  * Zusätzlich zwei numerische Statuscodes, mit denen sich in der Loxone Config einfach
+    Logik bauen lässt (siehe [[#statuscodes]])
+  * Die MQTT-Subscription wird vom Plugin automatisch im MQTT Gateway eingetragen – es ist
+    **keine** manuelle Subscription nötig
+  * Das Plugin liest nur. Es verändert **keine** Einstellungen an der Wärmepumpe
+
+===== Voraussetzungen =====
+
+  * **LoxBerry ab Version 3.0** (das MQTT Gateway ist ab 3.0 fester Bestandteil von LoxBerry)
+  * Der MQTT Broker in LoxBerry ist eingerichtet und läuft
+  * Eine Wärmepumpe mit Luxtronik 2 Regelung, die über das Netzwerk erreichbar ist
+  * **Firmware ab V3.81** – ab dieser Version stellt die Regelung das Webinterface über
+    WebSocket auf **Port 8214** bereit. Ältere Firmware wird nicht unterstützt.
+  * Optional für die Statuscodes: **Port 8889** (bei Firmware unter 3.81 Port 8888). Ist der
+    Port nicht erreichbar, funktioniert alles Übrige unverändert weiter – es fehlen dann
+    lediglich die Felder unter ''status''.
+
+===== Installation =====
+
+Installation über die übliche LoxBerry Plugin-Installation. Als Quelle kann direkt die
+ZIP-Datei des Releases verwendet werden:
+
+[[https://github.com/kitikonti/LoxBerry-Plugin-Luxtronik2/releases/latest]]
+
+Das Plugin unterstützt die **automatische Aktualisierung** von LoxBerry (Release und
+Pre-Release). Bei der Installation lädt das Plugin die benötigten PHP-Pakete per Composer
+nach – dafür muss der LoxBerry beim Installieren Internetzugang haben.
+
+===== Konfiguration =====
+
+Die Konfigurationsseite ist über das LoxBerry Hauptmenü erreichbar.
+
+^ Einstellung ^ Bedeutung ^
+| **IP** | IP-Adresse oder Hostname der Wärmepumpe |
+| **Port** | Port des Webinterface, Standard ''8214'' |
+| **Passwort** | Passwort des Webinterface, ab Werk ''999999'' |
+| **Daten automatisch abrufen** | Legt den Cronjob an bzw. entfernt ihn wieder |
+| **Abfragezyklus** | 1, 3, 5, 10, 15, 30 oder 60 Minuten |
+
+Mit **Verbindung testen** wird einmalig von der Wärmepumpe gelesen, ohne die Eingaben zu
+speichern. So lässt sich eine falsche Adresse korrigieren, bevor sie im Cronjob landet.
+
+<WRAP center info 90%>
+Das Passwort wird beim reinen Lesen von der Regelung **nicht** geprüft – die Wärmepumpe
+akzeptiert für einen Lesezugriff jedes Passwort. Der Verbindungstest beantwortet daher die
+Frage „ist die Regelung erreichbar und spricht sie das Protokoll", und genau das geht in der
+Praxis schief.
+</WRAP>
+
+<WRAP center important 90%>
+Ein kurzer Abfragezyklus belastet den kleinen Webserver der Regelung. Es gibt Berichte, dass
+dieser bei dauerhaft häufigen Abfragen nicht mehr reagiert und die Wärmepumpe stromlos gemacht
+werden muss (die Wärmepumpe selbst läuft dabei weiter). Im Zweifel lieber 5 Minuten wählen.
+</WRAP>
+
+===== Daten in Loxone einbinden =====
+
+Die Werte kommen über das MQTT Gateway am Miniserver an. Der allgemeine Ablauf ist hier
+beschrieben: [[konfiguration:widget_help:widget_mqtt:mqtt_gateway:mqtt_schritt_fur_schritt_mqtt_loxone|MQTT – Schritt für Schritt: MQTT -> Loxone]]
+
+Kurzfassung für dieses Plugin:
+
+  - Im LoxBerry das MQTT Gateway öffnen und dort die **Incoming Overview** aufrufen
+    (Menü //MQTT Gateway// -> //Incoming Overview//). Den Bereich //HTTP Virtual Inputs//
+    aufklappen: dort stehen alle Werte, die das Plugin liefert – erkennbar am Präfix
+    ''luxtronik2_''.
+  - Den gewünschten Namen mit **Copy** in die Zwischenablage kopieren.
+  - In der Loxone Config unter //Virtuelle Eingänge// einen **Virtuellen Eingang** anlegen
+    (für Textwerte einen **Virtuellen Texteingang**).
+  - Als **Bezeichnung** exakt den kopierten Namen einfügen. Der Name muss zeichengenau
+    übereinstimmen.
+  - **„Als Digitaleingang verwenden" auf NEIN** – auch bei Werten, die nur 0 oder 1 annehmen.
+  - Dem am Miniserver hinterlegten LoxBerry-Benutzer **Rechte auf den neuen Eingang** geben.
+    Fehlen die Rechte, meldet das MQTT Gateway ''HTTP 403 Possibly Access Denied''.
+
+<WRAP center info 90%>
+Im Namen des virtuellen Eingangs erscheint ein Unterstrich, der Teil des Wertenamens ist, als
+''%%##_%%''. Aus dem Wert ''status_modus_code'' wird also der virtuelle Eingang
+''%%luxtronik2_status_modus##_code%%''. Immer den Namen aus der Incoming Overview kopieren,
+nicht von Hand tippen.
+</WRAP>
+
+==== Einheiten und Texte ====
+
+Die Regelung liefert viele Werte **inklusive Einheit**, zum Beispiel ''44.8°C'', ''1210 l/h''
+oder ''26356h''. Das Plugin gibt sie unverändert weiter, damit nichts verfälscht wird.
+
+  * Für reine Anzeige eignet sich ein **Virtueller Texteingang**.
+  * Sollen Werte gerechnet oder in Bausteinen verwendet werden, empfiehlt sich der numerische
+    Weg über die Statuscodes (siehe unten) oder eine **Conversion** im MQTT Gateway. Damit
+    lassen sich bekannte Texte in Zahlen umwandeln:
+    [[konfiguration:widget_help:widget_mqtt:mqtt_gateway:mqtt_schritt_fur_schritt_mqtt_loxone#conversions_erstellen|Conversions erstellen]]
+
+===== Statuscodes =====
+
+Für Logik in der Loxone Config sind die beiden numerischen Codes am besten geeignet, weil sie
+sich – anders als deutscher Text – direkt in Bausteinen auswerten lassen.
+
+==== luxtronik2_status_modus##_code ====
+
+Was die Wärmepumpe gerade tut. **''5'' bedeutet, dass die Wärmepumpe steht**, jeder andere Wert
+bedeutet, dass sie arbeitet.
+
+^ Code ^ Bedeutung ^
+| 0 | Heizbetrieb |
+| 1 | Warmwasser |
+| 2 | Schwimmbad/Solar |
+| 3 | EVU-Sperre |
+| 4 | Abtauen |
+| **5** | **Keine Anforderung (Wärmepumpe steht)** |
+| 6 | Heizen Ext. Energiequelle |
+| 7 | Kühlbetrieb |
+
+Die Regelung zeigt am Display noch weitere Zustände an, für die es **keinen** eigenen Code
+gibt – etwa //Pumpenvorlauf//, //Schaltspielzeit//, //Sperrzeit//, //Netzeinschaltverzögerung//,
+//Estrich Programm//, //Thermische Desinfektion//, //Durchflussüberwachung// oder //ZWE 1 aktiv//.
+Während dieser Phasen meldet der Code bereits die Betriebsart, auf die die Wärmepumpe zusteuert.
+Beim Pumpenvorlauf steht der Code also schon auf ''0'' oder ''1'', obwohl der Verdichter noch aus ist.
+
+==== luxtronik2_status_abschaltung##_code ====
+
+Der Grund, warum die Wärmepumpe zuletzt abgeschaltet hat. Während die Wärmepumpe läuft, bezieht
+sich dieser Wert auf ein vergangenes Ereignis.
+
+^ Code ^ Bedeutung ^ ^ Code ^ Bedeutung ^
+| 0 | WP-Fehler | | 13 | Überhitzungs-Pause |
+| 1 | Anlagenfehler | | 14 | Inverter-Pause |
+| 2 | Betriebsart ZWE | | 15 | Enthitzer-Pause |
+| 3 | EVU-Sperre | | 16 | Betriebsart Umschaltung |
+| 5 | Luftabtauen | | 17 | Andere Abschaltung |
+| 6 | Max. Einsatztemperatur | | 18 | Min. Durchfluss Kühlung |
+| 7 | Min. Einsatztemperatur | | 19 | PV max |
+| 8 | Untere Einsatzgrenze | | 20 | Heissgas-Pause |
+| **9** | **Keine Anforderung** | | 21 | Überhitzung Heissgas |
+| 10 | Externe Energiequelle | | 23 | Min. WQ-Austritt Kühlung |
+| 11 | Durchfluss | | 24 | LPC |
+| 12 | Niederdruck-Pause | | 25 | Neustart |
+
+Je nach Firmware treten auch Codes außerhalb dieser Tabelle auf – eine Regelung mit V3.90.3
+meldet zum Beispiel **26** für //TR Erh max//. Unbekannte Codes bitte als solche behandeln; den
+Klartext der Regelung zum selben Ereignis liefert ''luxtronik2_abschaltungen_0_name''.
+
+==== Standzeit ====
+
+^ Wert ^ Bedeutung ^
+| ''%%luxtronik2_status_steht##_seit%%'' | Wie lange die Wärmepumpe schon steht, als ''hh:mm:ss'' |
+| ''%%luxtronik2_status_steht##_seit##_sekunden%%'' | Dasselbe in Sekunden, für Berechnungen |
+
+Diese beiden Werte gibt es **nur, solange die Wärmepumpe steht** (also bei ''modus_code = 5''),
+weil die Regelung nur den Zeitpunkt der letzten Abschaltung liefert und nicht die verstrichene
+Zeit. Das Plugin rechnet sie aus – es ist der einzige berechnete Wert, alle anderen kommen
+unverändert von der Regelung.
+
+Während die Wärmepumpe **läuft**, liefert die Regelung die Laufzeit selbst in
+''%%luxtronik2_ablaufzeiten_wp##_seit%%''. Achtung: Dieser Zähler läuft nur während des Betriebs
+und bleibt danach auf seinem letzten Wert stehen – er ist also nur sinnvoll, wenn
+''modus_code'' ungleich ''5'' ist.
+
+===== Besonderheiten der Werte =====
+
+  * **''-'' als Wert** heißt, dass die Regelung an dieser Stelle nichts geliefert hat. Das ist
+    keine Null. Einige Felder im Anlagenstatus sind je nach Betriebszustand zeitweise leer.
+  * **Doppelte Namen:** Manche Firmware meldet innerhalb eines Bereichs zwei Werte mit
+    demselben Namen – ''HD'' zum Beispiel einmal als Schaltzustand (''Aus'') und einmal als
+    Druck (''15.30 bar''). Damit nichts verloren geht, behält der zuletzt gemeldete Wert den
+    normalen Namen, der frühere bekommt ein ''_1'' angehängt:
+    ''%%luxtronik2_eingaenge_hd%%'' und ''%%luxtronik2_eingaenge_hd##_1%%''.
+  * **Welche Werte es gibt, hängt von Firmware und Modell ab.** Maßgeblich ist immer die
+    Incoming Overview des MQTT Gateway – dort steht genau das, was die eigene Anlage liefert.
+  * Das MQTT Gateway überträgt **nur Änderungen** an den Miniserver.
+
+===== Fehlersuche =====
+
+  * **Verbindung testen** auf der Konfigurationsseite zeigt sofort, ob die Regelung erreichbar
+    ist, und gibt sonst die konkrete Fehlermeldung aus.
+  * Das Plugin schreibt ein Logfile (//Fetch//), einsehbar über das Plugin-Verwaltungs-Widget
+    bzw. den Logfile-Viewer von LoxBerry. Der Loglevel lässt sich dort einstellen.
+  * Kommen keine Werte am Miniserver an, obwohl das Plugin sauber loggt, liegt es fast immer an
+    der Loxone-Seite: falsch geschriebene Bezeichnung des virtuellen Eingangs oder fehlende
+    Rechte des LoxBerry-Benutzers (''HTTP 403'' in der Incoming Overview).
+  * Ist die Wärmepumpe nicht erreichbar, veröffentlicht das Plugin **nichts** und protokolliert
+    den Fehler. Der zuletzt gesendete Wert bleibt am Broker stehen – die Zeitstempel in der
+    Incoming Overview zeigen also, ob die Daten noch aktuell sind.
+
+===== Fragen stellen und Fehler melden =====
+
+  * GitHub Issues: [[https://github.com/kitikonti/LoxBerry-Plugin-Luxtronik2/issues]]
+  * Quellcode: [[https://github.com/kitikonti/LoxBerry-Plugin-Luxtronik2]]
