@@ -5,6 +5,17 @@ require_once "Config/Lite.php";
 require_once "loxberry_web.php";
 require_once "loxberry_log.php";
 
+// The plugin's own classes, from the composer install under bin/. LoxBerry has
+// no mechanism for sharing composer packages between a plugin's directories -
+// its plugin documentation does not mention composer at all - so the frontend
+// simply loads the autoloader the bin/ install already produced. Guarded
+// because postinstall.sh may not have run yet, or may have failed.
+$luxtronik2_autoload = "$lbpbindir/fetch_heat_pump_data/vendor/autoload.php";
+$luxtronik2_classes  = file_exists($luxtronik2_autoload);
+if ($luxtronik2_classes) {
+  require_once $luxtronik2_autoload;
+}
+
 // This will read your language files to the array $L
 $L = LBSystem::readlanguage("language.ini");
 
@@ -68,7 +79,7 @@ function update_crontab($cycle = 0) {
     // Abort and set error if not a valid cycle.
     if (!in_array($cycle, array_keys($croncycle_options))) {
       global $messages;
-      $messages["error"][] = "Invalid cycle option. Cronjob will not be created.";
+      $messages["error"][] = $L['MESSAGES.CYCLE_INVALID'];
       fclose($temp_file);
       return;
     }
@@ -105,6 +116,35 @@ function h($string) {
 // NEVER name this $cfg - see the note in bin/fetch_heat_pump_data/fetch.php.
 // The LoxBerry SDK holds general.json in a global $cfg; shadowing it here makes
 // LBWeb::lbheader() fall back to the default theme.
+/**
+ * Read once from the heat pump with the values currently in the form.
+ *
+ * Note the password is not really being validated: the controller accepts any
+ * password for a read-only login, so this answers "is the controller reachable
+ * and speaking the protocol", which is what actually goes wrong in practice.
+ */
+function luxtronik2_test_connection($ip, $port, $password) {
+  global $messages, $L, $luxtronik2_classes;
+
+  if (!$luxtronik2_classes) {
+    $messages["error"][] = $L['MESSAGES.TEST_UNAVAILABLE'];
+    return;
+  }
+  try {
+    // Shorter than the cronjob's timeout - someone is waiting on a web page.
+    $controller = new Luxtronic2\LuxController($ip, $port, $password, 8);
+    $data = $controller->getData();
+    $messages["info"][] = sprintf($L['MESSAGES.TEST_OK'],
+      $ip, $port, count($data), implode(", ", array_slice(array_keys($data), 0, 4)));
+    foreach ($controller->getWarnings() as $warning) {
+      $messages["error"][] = $warning;
+    }
+  }
+  catch (Throwable $e) {
+    $messages["error"][] = sprintf($L['MESSAGES.TEST_FAILED'], $ip, $port, $e->getMessage());
+  }
+}
+
 $pluginconfig = new Config_Lite("$lbpconfigdir/pluginconfig.cfg",LOCK_EX,INI_SCANNER_RAW);
 
 // Submitted values, only populated on POST - see the $rejected block below.
@@ -120,20 +160,27 @@ if (!empty($_POST)) {
   // Validate before saving: a bad address here means fetch.php fails on every
   // cron run, and the only place that shows up is the plugin log.
   if ($ip === "") {
-    $messages["error"][] = "The heat pump address must not be empty.";
+    $messages["error"][] = $L['MESSAGES.IP_EMPTY'];
   }
   elseif (!filter_var($ip, FILTER_VALIDATE_IP)
     && !filter_var($ip, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
-    $messages["error"][] = "\"" . htmlspecialchars($ip) . "\" is neither a valid IP address nor a hostname.";
+    $messages["error"][] = sprintf($L['MESSAGES.IP_INVALID'], $ip);
   }
   if ($port === "" || !ctype_digit($port) || (int) $port < 1 || (int) $port > 65535) {
-    $messages["error"][] = "The port must be a number between 1 and 65535 (the Luxtronik default is 8214).";
+    $messages["error"][] = $L['MESSAGES.PORT_INVALID'];
   }
   if (!array_key_exists($cycle, $croncycle_options)) {
-    $messages["error"][] = "Invalid polling cycle.";
+    $messages["error"][] = $L['MESSAGES.CYCLE_INVALID'];
   }
 
-  if (empty($messages["error"])) {
+  // "Test connection" checks the entered values without saving them, so a bad
+  // address can be corrected before it becomes the cronjob's problem.
+  if (isset($_POST["luxtronik2-test"])) {
+    if (empty($messages["error"])) {
+      luxtronik2_test_connection($ip, $port, $password);
+    }
+  }
+  elseif (empty($messages["error"])) {
     $pluginconfig->set("SETTINGS","IP",$ip);
     $pluginconfig->set("SETTINGS","PORT",$port);
     $pluginconfig->set("SETTINGS","PASSWORD",$password);
@@ -147,10 +194,10 @@ if (!empty($_POST)) {
     }
     $pluginconfig->set("SETTINGS","CRONCYCLE",$cycle);
     $pluginconfig->save();
-    $messages["info"][] = "Settings saved.";
+    $messages["info"][] = $L['MESSAGES.SAVED'];
   }
   else {
-    $messages["error"][] = "Nothing was saved.";
+    $messages["error"][] = $L['MESSAGES.NOTSAVED'];
   }
 }
 
@@ -176,7 +223,7 @@ LBWeb::lbheader($template_title, $helplink, $helptemplate);
 foreach ($messages as $type => $type_messages) {
   echo "<div class=\"message $type\"><ul>";
   foreach ($type_messages as $type_message) {
-    echo "<li>$type_message</li>";
+    echo "<li>" . h($type_message) . "</li>";
   }
   echo "</ul></div>";
 }
@@ -261,7 +308,8 @@ foreach ($messages as $type => $type_messages) {
     </div>
 
     <div class="ui-field-contain luxtronik2-form-submit">
-      <input type="submit" value="<?= $L['SETTINGS.SAVE'] ?>" data-icon="check">
+      <input type="submit" value="<?= h($L['SETTINGS.SAVE']) ?>" data-icon="check">
+      <input type="submit" name="luxtronik2-test" value="<?= h($L['SETTINGS.TEST']) ?>" data-icon="refresh">
     </div>
   </form>
 

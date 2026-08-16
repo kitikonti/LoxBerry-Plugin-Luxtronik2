@@ -264,6 +264,22 @@ short `PBIN`/`PCONFIG` forms are local variables each script must derive itself
 (`PBIN=$LBPBIN/$PDIR`). Both hook scripts now do — `postupgrade.sh` previously used `$PBIN`
 without deriving it, so its composer line silently expanded to `php /composer.phar`.
 
+### Translations and the settings page
+
+`templates/lang/language_de.ini` and `language_en.ini`, read via `LBSystem::readlanguage()` into
+`$L`. **LoxBerry does not use `parse_ini_file`.** `parse_lang_file()` reads the file line by line
+and strips only the *outermost* pair of double quotes, with no escape processing — so `\"` in a
+value reaches the page as a literal backslash-quote. Don't escape quotes in language files; embedded
+quotes (the `<a href="...">` in `HOWTO.TEXT`) are fine as-is. Every new string needs a key in both
+files; English is the fallback.
+
+Messages are plain text and escaped once where they are printed, not at each insertion.
+
+The settings page loads the plugin's own classes from the composer install under `bin/`:
+`require_once "$lbpbindir/fetch_heat_pump_data/vendor/autoload.php"`, guarded with `file_exists`.
+There is no LoxBerry mechanism for sharing composer packages between a plugin's directories — its
+plugin documentation never mentions composer at all — so don't go looking for one.
+
 ## Releasing
 
 There are **two independent channels**, and LoxBerry polls both over raw.githubusercontent from
@@ -290,7 +306,3 @@ Risky changes go to the prerelease channel first: bump `prerelease.cfg` only and
 `[AUTHOR] NAME`/`EMAIL` and `[PLUGIN] NAME`/`FOLDER` identify the plugin for updates — changing
 any of them makes LoxBerry treat it as a different plugin and install a second copy alongside.
 
-## Translations
-
-`templates/lang/language_de.ini` and `language_en.ini`, read via `LBSystem::readlanguage()` into
-`$L`; English is the fallback language. Every new UI string needs a key in both files.

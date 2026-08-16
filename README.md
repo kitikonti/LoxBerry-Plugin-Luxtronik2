@@ -99,7 +99,10 @@ that the value is zero.
 
 
 ## TODO
-* Right now the plugin only fetches data. Maybe sending data is also possible —
-  note that the controller accepts *any* password for a read-only login, so the
-  configured password only starts to matter once `SET`/`SAVE` are used.
-* Update the composer integration and how composer packages are installed. Right now I only use composer packages in the /bin folder. I assume there is a Loxberry way to use composer packages, but have not found any documentation. To reach the heat pump from the settings page, for example, it would be required to use the same packages and classes in the /webfrontend folder.
+* Right now the plugin only fetches data. Writing is possible in principle — the
+  WebSocket protocol has `SET;set_<id>;<raw>` followed by `SAVE;1`, and the
+  configured password only starts to matter there (a read-only login is accepted
+  with any password). It has deliberately not been built: item ids are valid only
+  for the current connection, so a write means navigating `Einstellungen` live, and
+  a mistake changes how the heating actually runs rather than just publishing a
+  wrong number.
