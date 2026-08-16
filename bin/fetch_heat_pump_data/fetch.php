@@ -7,8 +7,6 @@ require_once "Config/Lite.php";
 require_once "loxberry_log.php";
 
 use Luxtronic2\LuxController;
-use Luxtronic2\LuxStatusReader;
-use Luxtronic2\LuxException;
 use Luxtronic2\LuxConnectionException;
 use Luxtronic2\LuxProtocolException;
 
@@ -25,11 +23,6 @@ const EXIT_UNEXPECTED       = 5;
 // shortest selectable one is 1 minute) so runs cannot pile up on a controller
 // that is already struggling.
 const LUX_TIMEOUT = 10;
-
-// Seconds to wait for the status socket (8889/8888). Shorter than the main
-// timeout: this is an optional extra, and the two must still fit inside the
-// shortest cron cycle together.
-const LUX_STATUS_TIMEOUT = 5;
 
 // Creates a log object.
 $log = LBLog::newLog([
@@ -78,23 +71,6 @@ try {
     'Read %d sections from %s:%s in %.1f s',
     count($data), $ip, $port, microtime(TRUE) - $started
   ));
-
-  // The controller's own display text lives on a separate socket, not in the
-  // WebSocket tree. It is a bonus on top of the real payload, so a failure here
-  // must never cost us a publish - log it quietly and carry on without it.
-  // Quietly, because this runs every minute: a pump without that socket would
-  // otherwise fill the log with warnings for a value it never had.
-  try {
-    $status = (new LuxStatusReader($ip, LUX_STATUS_TIMEOUT))->read();
-    // getData() already normalised its own keys, so this section has to be
-    // normalised explicitly - otherwise it reaches Loxone as "Status_Zeile1
-    // Code", spaces and capitals included.
-    $data['status'] = LuxController::toMqttKeys($status);
-    LOGINF('Controller status: ' . $status['Zeile1'] . ' / ' . $status['Zeile3']);
-  }
-  catch (LuxException $e) {
-    LOGINF('Status lines unavailable (publishing heat pump data anyway): ' . $e->getMessage());
-  }
 
   $payload = json_encode($data);
   if ($payload === FALSE) {

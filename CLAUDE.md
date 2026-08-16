@@ -151,31 +151,31 @@ element at all, and none of them have child items being silently dropped. Which 
 is transient — `Betriebszustand` is empty while the compressor is off, and `Inverter` / `WP IO` /
 `HZ IO` / `Bedienteil` were empty in one snapshot and populated in the next.
 
-### LuxStatusReader — the second protocol
+### The controller's display text is NOT obtainable
 
-The WebSocket carries **no** status text. Its only operating-state field is
-`Anlagenstatus/Betriebszustand`, which is simply empty whenever there is no demand — verified by
-dumping the entire navigation tree of a FW V3.90.3 controller (`Informationen`, `Einstellungen`,
-`Zeitschaltprogramm`, `Zugang`, `Fernsteuerung`; nothing else). hansmi/wp2reg-luxws reads the
-same single field.
+Do not try to publish "Wärmepumpe steht / seit hh:mm:ss / Keine Anforderung" again without
+reading this. Both protocols were checked on FW V3.90.3 and neither carries it:
 
-The display text lives in the **legacy binary protocol** on a plain TCP socket — port **8889** on
-firmware ≥ 3.81, 8888 on older ones. Send two big-endian int32 (`3004`, `0`); read back the echoed
-command, a status word, a count, then that many big-endian **signed** int32. Indices **117/118/119**
-are the three display lines as enum codes (120 is documented as the timer but reads 0 on
-V3.90.3 — the displayed duration comes from somewhere else, not yet identified).
+- **WebSocket (8214)**: the complete navigation tree is `Informationen`, `Einstellungen`,
+  `Zeitschaltprogramm`, `Zugang: Benutzer`, `Fernsteuerung` — no status text anywhere. Its only
+  operating-state field is `Anlagenstatus/Betriebszustand`, which is empty whenever there is no
+  demand. hansmi/wp2reg-luxws reads that same single field.
+- **Binary protocol (8889, request 3004)**: `ID_WEB_HauptMenuStatus_Zeile1/2/3/Zeit` are at
+  indices 117–120 and read **0, 0, 0, 0** on this firmware. The array is definitely aligned —
+  100–104 match the error codes, 105 the error count, 106–110 the shutdown reasons and 111–115
+  the shutdown timestamps, all verified against the published payload. The fields are simply not
+  populated. They were observed non-zero exactly once and zero every time since; do not trust a
+  single reading.
 
-Offsets confirmed by cross-checking indices 10/11/15/16/17 against the WebSocket's
-`vorlauf`/`ruecklauf`/`aussentemperatur`/`mitteltemperatur`/`warmwasser-ist` — all five matched
-exactly — and by watching 117/119 flip 1→0 as the pump went from idle to heating.
+The displayed timer is **computed, not stored**: it is `now - Switchoff_file_Time4` (index 115,
+the most recent shutdown). Verified — 1786892140 + 12762 s landed exactly on the wall clock when
+the display read `seit 03:32:42`.
 
-This reader is a **bonus, never a dependency**: `fetch.php` catches every `LuxException` from it
-and publishes the heat pump data regardless. Failures log at `LOGINF`, not `LOGWARN`, because at
-a 1-minute cycle a pump without that socket would otherwise fill the log forever.
-
-Both the label and the numeric code are published. Loxone logic should switch on the **code** —
-it is stable across firmware wording and language, whereas most labels are translated from
-python-luxtronik's English and only a handful are confirmed verbatim against a real display.
+Everything needed to compose the text is already published from the WebSocket:
+`abschaltungen_0_name` is the shutdown reason (`keine Anf.`), `abschaltungen_0_uhrzeit` is when,
+and `ausgaenge_verdichter` says whether it is running. Composing it is a judgement call for the
+maintainer — the plugin would be inventing a field the controller never sent — so it belongs in
+Loxone logic unless someone decides otherwise.
 
 ### Cronjob handling
 
