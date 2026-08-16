@@ -42,56 +42,6 @@ class LuxCalculations {
   /** Rejects a reply that is not actually this protocol (272 on FW V3.90.3). */
   const MAX_VALUES = 2000;
 
-  /**
-   * ID_WEB_WP_BZ_akt. Mirrors the third line of the controller display.
-   * "Keine Anforderung" and "Warmwasser" are confirmed verbatim against a real
-   * display; the rest follow the same naming.
-   */
-  const OPERATION_MODES = [
-    0 => 'Heizbetrieb',
-    1 => 'Warmwasser',
-    2 => 'Schwimmbad/Solar',
-    3 => 'EVU-Sperre',
-    4 => 'Abtauen',
-    5 => 'Keine Anforderung',
-    6 => 'Heizen Ext. Energiequelle',
-    7 => 'Kühlbetrieb',
-  ];
-
-  /**
-   * ID_WEB_Switchoff_file_Nr. Translated from python-luxtronik's English
-   * labels; the code is published alongside so nothing depends on the wording.
-   * This controller reported 26, which that table does not list at all - hence
-   * the "Code n" fallback rather than an error.
-   */
-  const SWITCHOFF_REASONS = [
-    0  => 'WP-Fehler',
-    1  => 'Anlagenfehler',
-    2  => 'Betriebsart ZWE',
-    3  => 'EVU-Sperre',
-    5  => 'Luftabtauen',
-    6  => 'Max. Einsatztemperatur',
-    7  => 'Min. Einsatztemperatur',
-    8  => 'Untere Einsatzgrenze',
-    9  => 'Keine Anforderung',
-    10 => 'Externe Energiequelle',
-    11 => 'Durchfluss',
-    12 => 'Niederdruck-Pause',
-    13 => 'Überhitzungs-Pause',
-    14 => 'Inverter-Pause',
-    15 => 'Enthitzer-Pause',
-    16 => 'Betriebsart Umschaltung',
-    17 => 'Andere Abschaltung',
-    18 => 'Min. Durchfluss Kühlung',
-    19 => 'PV max',
-    20 => 'Heissgas-Pause',
-    21 => 'Überhitzung Heissgas',
-    22 => 'Keine Anforderung',
-    23 => 'Min. WQ-Austritt Kühlung',
-    24 => 'LPC',
-    25 => 'Neustart',
-  ];
-
   private $ip;
   private $ports;
   private $timeout;
@@ -117,25 +67,21 @@ class LuxCalculations {
     $reason = array_key_exists(self::IDX_LAST_SWITCHOFF, $values)
       ? $values[self::IDX_LAST_SWITCHOFF] : NULL;
 
+    // Codes only, no labels. The controller's own German text is already
+    // published verbatim elsewhere (anlagenstatus.betriebszustand,
+    // abschaltungen[0].name); any label here would be our invention, and this
+    // 8-value enum cannot express states the display shows anyway - see the
+    // code tables in README.md.
     $out = [];
     if ($mode !== NULL) {
       $out['Modus Code'] = (string) $mode;
-      $out['Modus']      = self::label(self::OPERATION_MODES, $mode);
     }
     if ($reason !== NULL) {
-      // NOT "Grund Code": LuxStatus already publishes "Grund" for the CURRENT
-      // reason ("Warmwasser" while running). Sharing that prefix would imply
-      // this is its numeric form, when it is the last SHUTDOWN reason and while
-      // running refers to a past event.
+      // "Abschaltung", not "Grund": this is why the pump last STOPPED, which
+      // while it runs refers to a past event.
       $out['Abschaltung Code'] = (string) $reason;
-      $out['Abschaltung Text'] = self::label(self::SWITCHOFF_REASONS, $reason);
     }
     return $out;
-  }
-
-  /** A known label, or "Code n" - firmwares report codes no table lists. */
-  private static function label(array $labels, $code) {
-    return array_key_exists($code, $labels) ? $labels[$code] : "Code $code";
   }
 
   private function readCalculations() {

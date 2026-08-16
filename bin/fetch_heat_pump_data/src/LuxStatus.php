@@ -3,21 +3,24 @@
 namespace Luxtronic2;
 
 /**
- * Composes the status line the controller shows on its display.
+ * Computes how long the heat pump has been standing.
  *
- * This is DERIVED, not read: neither protocol exposes that text. See CLAUDE.md
- * for the full investigation - in short, the WebSocket has no status node and
- * the binary protocol's HauptMenuStatus fields read zero on FW V3.90.3.
+ * This is the only value the plugin derives rather than reads, and it exists
+ * because it is the one genuinely useful thing not already in the payload: the
+ * controller publishes *when* it last stopped (abschaltungen[0].uhrzeit), not
+ * *how long ago*, and turning that into an elapsed time in Loxone Config means
+ * parsing "16.08.26 16:55:40" by hand.
  *
- * Everything needed is already in the payload though, and the arithmetic was
- * verified against a real display: the controller derives its own "seit" timer
- * from the most recent shutdown timestamp exactly the same way (index 115 of
- * the binary array plus the displayed 12762 s landed on the wall clock to the
- * second).
+ * The arithmetic is the controller's own: it derives its display timer from the
+ * same shutdown timestamp, verified to the second against a real display.
  *
- * Deliberately conservative: every field is omitted rather than guessed when
- * the inputs are missing, and nothing here overwrites a value the controller
- * actually sent.
+ * Everything else is published verbatim. There is deliberately no composed
+ * status text - see the code tables in README.md: the mode enum has 8 values
+ * where the controller's display draws on 16, so any sentence built from it
+ * would silently read "Warmwasser" while the display says "Pumpenvorlauf".
+ *
+ * While the pump runs, the controller's own counter is already published
+ * verbatim as ablaufzeiten.wp_seit, so nothing is derived for that case.
  */
 class LuxStatus {
 
@@ -28,87 +31,32 @@ class LuxStatus {
   const MISSING = '-';
 
   /**
-   * Build the status section from an already key-transformed payload.
-   *
    * @param array $data      the array getData() returned
-   * @param int   $now        unix timestamp, injectable so this can be tested
-   * @param string $modeLabel  the human label for that code, used as the reason
-   *   while running so the text reads like the display
-   * @param int   $modeCode   ID_WEB_WP_BZ_akt from LuxCalculations, when the
-   *   binary socket answered. Authoritative: it reports an active mode during
-   *   the Pumpenvorlauf phase, where the compressor is still off and
-   *   Betriebszustand alone cannot tell "standing" from "about to start".
-   * @return array|null  null when there is not enough information
+   * @param int   $modeCode  ID_WEB_WP_BZ_akt from LuxCalculations. Required:
+   *   without it there is no trustworthy way to tell standing from starting.
+   *   The compressor is still off during the controller's Pumpenvorlauf phase,
+   *   so a heuristic based on it calls a starting pump "standing".
+   * @param int   $now       unix timestamp, injectable so this can be tested
+   * @return array  empty when the pump is not standing or the time is unusable
    */
-  public static function compose(array $data, $now = NULL, $modeCode = NULL, $modeLabel = NULL) {
-    $now = $now === NULL ? time() : $now;
-
-    $running = $modeCode !== NULL
-      ? ((int) $modeCode !== LuxCalculations::MODE_NO_REQUEST)
-      : self::isRunning($data);
-    if ($running === NULL) {
-      return NULL;
+  public static function compose(array $data, $modeCode = NULL, $now = NULL) {
+    if ($modeCode === NULL
+      || (int) $modeCode !== LuxCalculations::MODE_NO_REQUEST) {
+      return [];
     }
 
-    $status = [
-      // Numeric first: Loxone logic should switch on this, not on the text.
-      'Laeuft' => $running ? '1' : '0',
-      'Zeile1' => $running ? 'Wärmepumpe läuft' : 'Wärmepumpe steht',
+    $since   = self::value($data, ['abschaltungen', 0, 'uhrzeit']);
+    $seconds = $since === NULL
+      ? NULL
+      : self::secondsSince($since, $now === NULL ? time() : $now);
+    if ($seconds === NULL) {
+      return [];
+    }
+
+    return [
+      'Steht Seit'          => self::formatDuration($seconds),
+      'Steht Seit Sekunden' => (string) $seconds,
     ];
-
-    // The reason: while running the controller names the active mode, while
-    // standing it is whatever last shut it down.
-    // While running the mode label matches the display exactly ("Warmwasser"),
-    // where Betriebszustand only abbreviates it ("WW") - so prefer the label
-    // and fall back to the WebSocket when the binary socket did not answer.
-    $reason = $running
-      ? ($modeLabel !== NULL ? $modeLabel : self::value($data, ['anlagenstatus', 'betriebszustand']))
-      : self::value($data, ['abschaltungen', 0, 'name']);
-    if ($reason !== NULL) {
-      // Passed through verbatim. The controller abbreviates in the Abschaltungen
-      // list ("keine Anf." where the display writes "Keine Anforderung"); that
-      // is its own wording, so it is not expanded here.
-      $status['Grund'] = $reason;
-    }
-
-    // Elapsed time, from a different source in each state:
-    //  - standing: now minus the timestamp of the shutdown that stopped it,
-    //    which is how the controller derives its own display timer
-    //  - running:  the controller's own "WP seit" counter. It only advances
-    //    while the pump runs and holds a stale value in between, so it is read
-    //    in this branch only.
-    $seconds = $running
-      ? self::durationToSeconds(self::value($data, ['ablaufzeiten', 'wp_seit']))
-      : self::secondsSince(self::value($data, ['abschaltungen', 0, 'uhrzeit']), $now);
-    if ($seconds !== NULL) {
-      $status['Seit']          = self::formatDuration($seconds);
-      $status['Seit Sekunden'] = (string) $seconds;
-    }
-
-    $status['Text'] = self::line($status);
-
-    return $status;
-  }
-
-  /**
-   * TRUE while the heat pump is working, FALSE while it stands, NULL when the
-   * payload does not say.
-   *
-   * Betriebszustand is the controller's own operating state and carries the
-   * active mode while running; it is empty whenever there is no demand. The
-   * compressor output is the fallback for firmwares that leave it empty always.
-   */
-  private static function isRunning(array $data) {
-    $mode = self::value($data, ['anlagenstatus', 'betriebszustand']);
-    if ($mode !== NULL) {
-      return TRUE;
-    }
-    $compressor = self::value($data, ['ausgaenge', 'verdichter']);
-    if ($compressor === NULL) {
-      // Neither field present - say nothing rather than guess "standing".
-      return isset($data['anlagenstatus']) || isset($data['ausgaenge']) ? FALSE : NULL;
-    }
-    return strcasecmp(trim($compressor), 'Ein') === 0;
   }
 
   /** Fetch a nested value, or NULL if absent, empty or our missing marker. */
@@ -130,13 +78,12 @@ class LuxStatus {
   /**
    * Seconds between a controller timestamp ("16.08.26 16:55:40") and now.
    *
-   * Returns NULL if it does not parse, or if it is in the future - a controller
-   * whose clock is ahead would otherwise produce a negative duration.
+   * NULL if it does not parse, or if it is in the future - a controller whose
+   * clock is ahead would otherwise produce a negative duration. Parsed in the
+   * local timezone, which is correct as long as the controller's clock is also
+   * local; do not force UTC.
    */
   private static function secondsSince($timestamp, $now) {
-    if ($timestamp === NULL) {
-      return NULL;
-    }
     $parsed = \DateTime::createFromFormat(self::TIMESTAMP_FORMAT, $timestamp);
     if ($parsed === FALSE) {
       return NULL;
@@ -145,29 +92,9 @@ class LuxStatus {
     return $elapsed < 0 ? NULL : $elapsed;
   }
 
-  /** "00:04:14" back to seconds, or NULL if it is not that shape. */
-  private static function durationToSeconds($duration) {
-    if ($duration === NULL || !preg_match('/^(\d+):([0-5]\d):([0-5]\d)$/', trim($duration), $m)) {
-      return NULL;
-    }
-    return ((int) $m[1]) * 3600 + ((int) $m[2]) * 60 + (int) $m[3];
-  }
-
   /** Seconds as HH:MM:SS, hours not wrapping at 24 - the display counts on. */
   private static function formatDuration($seconds) {
     return sprintf('%02d:%02d:%02d',
       intdiv($seconds, 3600), intdiv($seconds % 3600, 60), $seconds % 60);
-  }
-
-  /** The whole thing as one line, mirroring the controller's three rows. */
-  private static function line(array $status) {
-    $line = $status['Zeile1'];
-    if (isset($status['Seit'])) {
-      $line .= ' seit ' . $status['Seit'];
-    }
-    if (isset($status['Grund'])) {
-      $line .= ' - ' . $status['Grund'];
-    }
-    return $line;
   }
 }

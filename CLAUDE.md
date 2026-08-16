@@ -177,28 +177,25 @@ and `ausgaenge_verdichter` says whether it is running. Composing it is a judgeme
 maintainer — the plugin would be inventing a field the controller never sent — so it belongs in
 Loxone logic unless someone decides otherwise.
 
-### LuxStatus — the composed status line (derived, not read)
+### LuxStatus — the one derived value
 
-`LuxStatus::compose()` builds the display line from the payload, because neither protocol
-exposes it (see above). This is the one place the plugin publishes something the controller
-never sent, so it is kept explicit and conservative:
+`LuxStatus::compose()` publishes exactly one thing: **how long the pump has been standing**,
+as `status_steht_seit` / `_sekunden`, and only while `Modus Code` is 5. The controller publishes
+*when* it last stopped, not *how long ago*, and parsing `16.08.26 16:55:40` in Loxone Config is
+painful — that is the entire justification. The arithmetic is the controller's own, verified to
+the second against a real display.
 
-- `status_laeuft` (0/1) is the field Loxone logic should switch on, not the text
-- `status_zeile1` — "Wärmepumpe läuft" / "Wärmepumpe steht"
-- `status_grund` — `anlagenstatus.betriebszustand` while running, `abschaltungen[0].name` while
-  standing. Passed through verbatim, so it reads the controller's abbreviated `keine Anf.`
-  rather than the display's `Keine Anforderung`
-- `status_seit` / `status_seit_sekunden` — **only while standing**, from
-  `abschaltungen[0].uhrzeit`. Nothing in either protocol records when a *run* started, so the
-  running case deliberately has no timer rather than a fabricated one
-- `status_text` — the three parts on one line
+It requires the mode code rather than guessing from the compressor: during the controller's
+*Pumpenvorlauf* phase the compressor is still off, so a heuristic calls a starting pump
+"standing".
 
-Running is decided by `betriebszustand` being non-empty (it carries the active mode and is empty
-whenever there is no demand), falling back to `ausgaenge.verdichter`.
-
-Every field is omitted rather than guessed when its input is missing, unparseable, or in the
-future. **Timezone:** the timestamp is parsed in LoxBerry's local timezone, which is correct as
-long as the controller's clock is also local — do not "fix" this by forcing UTC.
+**Do not reintroduce composed status text.** It was tried and removed: the mode enum has 8 values
+where the display draws on 16 (`Pumpenvorlauf`, `Schaltspielzeit`, `Sperrzeit`,
+`Netzeinschaltverzögerung`, `Thermische Desinfektion`, `Durchflussüberwachung`, `ZWE 1 aktiv`…),
+so any sentence built from it reads `Warmwasser` while the display says `Pumpenvorlauf`. It also
+duplicated values already published verbatim — `status_seit` was identical to
+`ablaufzeiten.wp_seit`, `status_grund` to `abschaltungen[0].name`. Labels for the codes live in
+README.md, for users, not in the payload.
 
 ### LuxCalculations — numeric state codes (binary protocol)
 
@@ -206,7 +203,10 @@ German text is awkward to switch on in Loxone Config, so two enum codes are read
 protocol (port 8889, request 3004): **index 80** `WP_BZ_akt` (current operation mode) and
 **index 110** `Switchoff_file_Nr4` (most recent shutdown reason). Published as code + label.
 
-Index 80 is the authoritative running/standing signal and is passed into `LuxStatus::compose()`.
+Codes only — no labels in the payload. The controller's own text is already published verbatim
+(`anlagenstatus.betriebszustand`, `abschaltungen[0].name`); a label here would be our invention.
+Meanings are documented in README.md. Index 80 is also the authoritative running/standing signal
+passed into `LuxStatus::compose()`.
 It reports an active mode during the *Pumpenvorlauf* phase, where the compressor is still off and
 `Betriebszustand` alone cannot tell "standing" from "about to start" — the controller shows a
 third state there, `Wärmepumpe kommt / in mm:ss`, whose timer counts **down**.

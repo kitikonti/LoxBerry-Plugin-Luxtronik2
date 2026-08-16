@@ -79,29 +79,24 @@ try {
     count($data), $ip, $port, microtime(TRUE) - $started
   ));
 
-  // Numeric state codes from the binary protocol, so Loxone logic can switch on
-  // a number instead of comparing German text. Fetched first because the mode
-  // code is the authoritative running/standing signal for the line below.
-  // Best-effort: a controller that does not serve that socket simply gets no
-  // code fields, logged at INFO because this runs every minute.
-  $codes = [];
+  // Numeric state codes, read verbatim from the binary protocol (the WebSocket
+  // has no numeric state at all). Codes only - see the tables in README.md.
+  // Best-effort: a controller not serving that socket simply gets no status
+  // section, logged at INFO because this runs every minute.
+  $status = [];
   try {
-    $codes = (new LuxCalculations($ip, LUX_CODES_TIMEOUT))->read();
+    $status = (new LuxCalculations($ip, LUX_CODES_TIMEOUT))->read();
+    // The one derived value: how long it has been standing. Needs the mode code
+    // to know that it IS standing, hence after the read.
+    $status += LuxStatus::compose($data,
+      isset($status['Modus Code']) ? (int) $status['Modus Code'] : NULL);
   }
   catch (LuxException $e) {
     LOGINF('State codes unavailable: ' . $e->getMessage());
   }
 
-  // The controller's display line, composed from the payload - neither protocol
-  // exposes it. Additive: nothing the controller sent is touched.
-  $status = LuxStatus::compose($data, NULL,
-    isset($codes['Modus Code']) ? (int) $codes['Modus Code'] : NULL,
-    isset($codes['Modus']) ? $codes['Modus'] : NULL);
-  $status = $status === NULL ? $codes : array_merge($status, $codes);
-
   if (!empty($status)) {
     $data['status'] = LuxController::toMqttKeys($status);
-    LOGINF('Status: ' . (isset($status['Text']) ? $status['Text'] : 'codes only'));
   }
 
   $payload = json_encode($data);
