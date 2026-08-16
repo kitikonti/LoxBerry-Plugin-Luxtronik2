@@ -37,8 +37,13 @@ $controller = NULL;
 
 try {
   // ---------------------------------------------------------------- config --
+  // NEVER name this $cfg. The LoxBerry SDK keeps LoxBerry's own general.json in
+  // a global of that name, and this file scope IS the global scope - assigning
+  // $cfg here silently replaces it. mqtt_connectiondetails() then reads
+  // $cfg->Mqtt->Brokerhost off a Config_Lite object and returns an empty broker
+  // host, and LBWeb::lbheader() loses the user's theme the same way.
   try {
-    $cfg = new Config_Lite("$lbpconfigdir/pluginconfig.cfg", LOCK_EX, INI_SCANNER_RAW);
+    $pluginconfig = new Config_Lite("$lbpconfigdir/pluginconfig.cfg", LOCK_EX, INI_SCANNER_RAW);
   }
   catch (Throwable $e) {
     // Config_Lite throws when the file is missing or unreadable.
@@ -47,9 +52,9 @@ try {
     );
   }
   // Always pass a default: Config_Lite::get() throws on a missing key otherwise.
-  $ip       = trim($cfg->get("SETTINGS", "IP", ""));
-  $port     = trim($cfg->get("SETTINGS", "PORT", ""));
-  $password = $cfg->get("SETTINGS", "PASSWORD", "");
+  $ip       = trim($pluginconfig->get("SETTINGS", "IP", ""));
+  $port     = trim($pluginconfig->get("SETTINGS", "PORT", ""));
+  $password = $pluginconfig->get("SETTINGS", "PASSWORD", "");
 
   if ($ip === "" || $port === "") {
     throw new InvalidArgumentException(

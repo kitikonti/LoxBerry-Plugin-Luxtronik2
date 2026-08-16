@@ -102,7 +102,14 @@ function h($string) {
   return htmlspecialchars((string) $string, ENT_QUOTES, "UTF-8");
 }
 
-$cfg = new Config_Lite("$lbpconfigdir/pluginconfig.cfg",LOCK_EX,INI_SCANNER_RAW);
+// NEVER name this $cfg - see the note in bin/fetch_heat_pump_data/fetch.php.
+// The LoxBerry SDK holds general.json in a global $cfg; shadowing it here makes
+// LBWeb::lbheader() fall back to the default theme.
+$pluginconfig = new Config_Lite("$lbpconfigdir/pluginconfig.cfg",LOCK_EX,INI_SCANNER_RAW);
+
+// Submitted values, only populated on POST - see the $rejected block below.
+$ip = $port = $password = "";
+$cycle = 0;
 
 if (!empty($_POST)) {
   $ip       = trim(isset($_POST["luxtronik2-ip"]) ? $_POST["luxtronik2-ip"] : "");
@@ -127,19 +134,19 @@ if (!empty($_POST)) {
   }
 
   if (empty($messages["error"])) {
-    $cfg->set("SETTINGS","IP",$ip);
-    $cfg->set("SETTINGS","PORT",$port);
-    $cfg->set("SETTINGS","PASSWORD",$password);
+    $pluginconfig->set("SETTINGS","IP",$ip);
+    $pluginconfig->set("SETTINGS","PORT",$port);
+    $pluginconfig->set("SETTINGS","PASSWORD",$password);
     if (isset($_POST["luxtronik2-cron"])) {
-      $cfg->set("SETTINGS","CRON",true);
+      $pluginconfig->set("SETTINGS","CRON",true);
       update_crontab($cycle);
     }
     else {
-      $cfg->set("SETTINGS","CRON",false);
+      $pluginconfig->set("SETTINGS","CRON",false);
       update_crontab();
     }
-    $cfg->set("SETTINGS","CRONCYCLE",$cycle);
-    $cfg->save();
+    $pluginconfig->set("SETTINGS","CRONCYCLE",$cycle);
+    $pluginconfig->save();
     $messages["info"][] = "Settings saved.";
   }
   else {
@@ -150,13 +157,13 @@ if (!empty($_POST)) {
 // Show the saved settings, except after a rejected save - then show what the
 // user typed, so a typo can be corrected instead of retyped.
 $rejected     = !empty($messages["error"]) && !empty($_POST);
-$form_ip      = $rejected ? $ip       : $cfg->get("SETTINGS","IP", "");
-$form_port    = $rejected ? $port     : $cfg->get("SETTINGS","PORT", "");
-$form_pass    = $rejected ? $password : $cfg->get("SETTINGS","PASSWORD", "");
-$form_cycle   = $rejected ? $cycle    : $cfg->get("SETTINGS","CRONCYCLE", "");
+$form_ip      = $rejected ? $ip       : $pluginconfig->get("SETTINGS","IP", "");
+$form_port    = $rejected ? $port     : $pluginconfig->get("SETTINGS","PORT", "");
+$form_pass    = $rejected ? $password : $pluginconfig->get("SETTINGS","PASSWORD", "");
+$form_cycle   = $rejected ? $cycle    : $pluginconfig->get("SETTINGS","CRONCYCLE", "");
 
 $cron_checked = "";
-if ($rejected ? isset($_POST["luxtronik2-cron"]) : $cfg->getBool("SETTINGS","CRON")) {
+if ($rejected ? isset($_POST["luxtronik2-cron"]) : $pluginconfig->getBool("SETTINGS","CRON")) {
   $cron_checked = "checked=\"\"";
 }
 

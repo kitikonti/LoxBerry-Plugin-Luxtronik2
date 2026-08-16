@@ -89,6 +89,14 @@ Two entry points with no shared code (see the README TODO — composer is wired 
 - **`webfrontend/htmlauth/index.php`** — the settings page, and the only writer of the plugin's
   cronjob (see below).
 
+Both are plain scripts, so **their top-level variables *are* PHP globals — and the LoxBerry SDK
+keeps its own state in globals.** Never name a variable `$cfg`: `LBSystem::read_generaljson()`
+parses `general.json` into `global $cfg`, and `mqtt_connectiondetails()`
+(`loxberry_io.php`) and `LBWeb::lbheader()` (`loxberry_web.php`) read `$cfg->Mqtt->…` and
+`$cfg->Base->Theme` back out of it. Assigning `$cfg = new Config_Lite(...)` replaces it and the
+broker host silently comes back empty. Both files use `$pluginconfig`. Other SDK globals to
+avoid: `$cfgwasread`, `$miniservers`, `$binaries`, `$lbversion`, `$log`.
+
 ### Data flow to Loxone
 
 `config/mqtt_subscriptions.cfg` (one line: `luxtronik2/#`) is an *injected subscription* — the
@@ -183,7 +191,7 @@ Risky changes go to the prerelease channel first: bump `prerelease.cfg` only and
 `release.cfg` behind. Promoting later is a one-line change to `release.cfg` (`VERSION` +
 `ARCHIVEURL`/`INFOURL`) and dropping `--prerelease` from the GitHub release — no new tag.
 
-> **Pending:** 1.3.0 is on the prerelease channel only, awaiting confirmation that the
+> **Pending:** 1.3.1 is on the prerelease channel only, awaiting confirmation that the
 > single-GET refactor returns an identical payload on real hardware. `release.cfg` still says
 > 1.2.0. Promote it once verified.
 
