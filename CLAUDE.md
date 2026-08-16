@@ -145,6 +145,12 @@ logs, mapped to `{name, uhrzeit}` rows), plus special cases for `GLT` (single it
 point to the payload is usually just adding its German label to the right array. Missing/empty
 values (which parse as arrays) are emitted as `-`, never null.
 
+A `-` in the payload is **not** a parsing gap — don't "fix" it. Verified on FW V3.90.3 by
+dumping the raw `<Content>`: the affected items carry either an empty `<value/>` or no `<value>`
+element at all, and none of them have child items being silently dropped. Which items are empty
+is transient — `Betriebszustand` is empty while the compressor is off, and `Inverter` / `WP IO` /
+`HZ IO` / `Bedienteil` were empty in one snapshot and populated in the next.
+
 ### Cronjob handling
 
 `cron/crontab` must exist in the archive — its *content* is irrelevant, but shipping it is the
