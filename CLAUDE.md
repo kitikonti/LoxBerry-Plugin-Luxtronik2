@@ -222,9 +222,16 @@ the table degrade to `Code n`: this controller reports shutdown reason **26**, w
 python-luxtronik's table does not list at all — the same robustness argument that makes text
 pass-through right for `status_grund`.
 
-Not obtainable, checked and abandoned: a "running since" timer. `Time_WPein_akt` (index 67 /
-`ablaufzeiten.wp_seit`) sits frozen at `00:00:09`, and index 73 counts compressor *standstill*.
-Only the standing duration is derivable.
+The elapsed timer comes from a different source in each state, and mixing them up is easy:
+`abschaltungen[0].uhrzeit` while standing, `ablaufzeiten.wp_seit` while running. **`wp_seit`
+only advances while the pump runs** and holds a stale value in between — it read `00:00:09`
+across two idle samples three hours apart, which briefly looked like a dead field. Read it in
+the running branch only. Index 73 is compressor *standstill*, not runtime — not the same thing.
+
+Note the key naming: `status_grund` is the CURRENT reason ("Warmwasser" while running), while
+`status_abschaltung_code`/`_text` are the last SHUTDOWN reason, which is a past event while the
+pump runs. They were briefly both called "Grund", which implied one was the numeric form of the
+other.
 
 ### Cronjob handling
 

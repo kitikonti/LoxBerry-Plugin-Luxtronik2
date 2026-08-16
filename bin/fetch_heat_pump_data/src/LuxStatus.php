@@ -71,17 +71,18 @@ class LuxStatus {
       $status['Grund'] = $reason;
     }
 
-    // The elapsed time is only derivable while the pump is standing, from the
-    // timestamp of the shutdown that stopped it. Nothing in either protocol
-    // records when a *run* started, so that case gets no timer rather than a
-    // made up one.
-    if (!$running) {
-      $since = self::value($data, ['abschaltungen', 0, 'uhrzeit']);
-      $seconds = $since === NULL ? NULL : self::secondsSince($since, $now);
-      if ($seconds !== NULL) {
-        $status['Seit']           = self::formatDuration($seconds);
-        $status['Seit Sekunden']  = (string) $seconds;
-      }
+    // Elapsed time, from a different source in each state:
+    //  - standing: now minus the timestamp of the shutdown that stopped it,
+    //    which is how the controller derives its own display timer
+    //  - running:  the controller's own "WP seit" counter. It only advances
+    //    while the pump runs and holds a stale value in between, so it is read
+    //    in this branch only.
+    $seconds = $running
+      ? self::durationToSeconds(self::value($data, ['ablaufzeiten', 'wp_seit']))
+      : self::secondsSince(self::value($data, ['abschaltungen', 0, 'uhrzeit']), $now);
+    if ($seconds !== NULL) {
+      $status['Seit']          = self::formatDuration($seconds);
+      $status['Seit Sekunden'] = (string) $seconds;
     }
 
     $status['Text'] = self::line($status);
@@ -133,12 +134,23 @@ class LuxStatus {
    * whose clock is ahead would otherwise produce a negative duration.
    */
   private static function secondsSince($timestamp, $now) {
+    if ($timestamp === NULL) {
+      return NULL;
+    }
     $parsed = \DateTime::createFromFormat(self::TIMESTAMP_FORMAT, $timestamp);
     if ($parsed === FALSE) {
       return NULL;
     }
     $elapsed = $now - $parsed->getTimestamp();
     return $elapsed < 0 ? NULL : $elapsed;
+  }
+
+  /** "00:04:14" back to seconds, or NULL if it is not that shape. */
+  private static function durationToSeconds($duration) {
+    if ($duration === NULL || !preg_match('/^(\d+):([0-5]\d):([0-5]\d)$/', trim($duration), $m)) {
+      return NULL;
+    }
+    return ((int) $m[1]) * 3600 + ((int) $m[2]) * 60 + (int) $m[3];
   }
 
   /** Seconds as HH:MM:SS, hours not wrapping at 24 - the display counts on. */

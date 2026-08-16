@@ -123,8 +123,12 @@ class LuxCalculations {
       $out['Modus']      = self::label(self::OPERATION_MODES, $mode);
     }
     if ($reason !== NULL) {
-      $out['Grund Code'] = (string) $reason;
-      $out['Grund Text'] = self::label(self::SWITCHOFF_REASONS, $reason);
+      // NOT "Grund Code": LuxStatus already publishes "Grund" for the CURRENT
+      // reason ("Warmwasser" while running). Sharing that prefix would imply
+      // this is its numeric form, when it is the last SHUTDOWN reason and while
+      // running refers to a past event.
+      $out['Abschaltung Code'] = (string) $reason;
+      $out['Abschaltung Text'] = self::label(self::SWITCHOFF_REASONS, $reason);
     }
     return $out;
   }
