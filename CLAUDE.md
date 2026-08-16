@@ -151,6 +151,32 @@ element at all, and none of them have child items being silently dropped. Which 
 is transient — `Betriebszustand` is empty while the compressor is off, and `Inverter` / `WP IO` /
 `HZ IO` / `Bedienteil` were empty in one snapshot and populated in the next.
 
+### LuxStatusReader — the second protocol
+
+The WebSocket carries **no** status text. Its only operating-state field is
+`Anlagenstatus/Betriebszustand`, which is simply empty whenever there is no demand — verified by
+dumping the entire navigation tree of a FW V3.90.3 controller (`Informationen`, `Einstellungen`,
+`Zeitschaltprogramm`, `Zugang`, `Fernsteuerung`; nothing else). hansmi/wp2reg-luxws reads the
+same single field.
+
+The display text lives in the **legacy binary protocol** on a plain TCP socket — port **8889** on
+firmware ≥ 3.81, 8888 on older ones. Send two big-endian int32 (`3004`, `0`); read back the echoed
+command, a status word, a count, then that many big-endian **signed** int32. Indices **117/118/119**
+are the three display lines as enum codes (120 is documented as the timer but reads 0 on
+V3.90.3 — the displayed duration comes from somewhere else, not yet identified).
+
+Offsets confirmed by cross-checking indices 10/11/15/16/17 against the WebSocket's
+`vorlauf`/`ruecklauf`/`aussentemperatur`/`mitteltemperatur`/`warmwasser-ist` — all five matched
+exactly — and by watching 117/119 flip 1→0 as the pump went from idle to heating.
+
+This reader is a **bonus, never a dependency**: `fetch.php` catches every `LuxException` from it
+and publishes the heat pump data regardless. Failures log at `LOGINF`, not `LOGWARN`, because at
+a 1-minute cycle a pump without that socket would otherwise fill the log forever.
+
+Both the label and the numeric code are published. Loxone logic should switch on the **code** —
+it is stable across firmware wording and language, whereas most labels are translated from
+python-luxtronik's English and only a handful are confirmed verbatim against a real display.
+
 ### Cronjob handling
 
 `cron/crontab` must exist in the archive — its *content* is irrelevant, but shipping it is the
