@@ -81,19 +81,23 @@ try {
 
   // Numeric state codes, read verbatim from the binary protocol (the WebSocket
   // has no numeric state at all). Codes only - see the tables in README.md.
-  // Best-effort: a controller not serving that socket simply gets no status
-  // section, logged at INFO because this runs every minute.
+  // Best-effort: a controller not serving that socket simply gets no codes,
+  // logged at INFO because this runs every minute.
   $status = [];
   try {
     $status = (new LuxCalculations($ip, LUX_CODES_TIMEOUT))->read();
-    // The one derived value: how long it has been standing. Needs the mode code
-    // to know that it IS standing, hence after the read.
-    $status += LuxStatus::compose($data,
-      isset($status['Modus Code']) ? (int) $status['Modus Code'] : NULL);
   }
   catch (LuxException $e) {
     LOGINF('State codes unavailable: ' . $e->getMessage());
   }
+
+  // The derived values, from the WebSocket data - so outside the try: the age
+  // of the newest error does not depend on the state codes and is published
+  // even when that socket was unavailable. The standing timer does need the
+  // mode code to know that the pump IS standing, and is simply absent without
+  // it, hence after the read.
+  $status += LuxStatus::compose($data,
+    isset($status['Modus Code']) ? (int) $status['Modus Code'] : NULL);
 
   if (!empty($status)) {
     $data['status'] = LuxController::toMqttKeys($status);

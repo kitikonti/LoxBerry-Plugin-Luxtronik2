@@ -177,17 +177,35 @@ and `ausgaenge_verdichter` says whether it is running. Composing it is a judgeme
 maintainer — the plugin would be inventing a field the controller never sent — so it belongs in
 Loxone logic unless someone decides otherwise.
 
-### LuxStatus — the one derived value
+### LuxStatus — the derived values
 
-`LuxStatus::compose()` publishes exactly one thing: **how long the pump has been standing**,
-as `status_steht_seit` / `_sekunden`, and only while `Modus Code` is 5. The controller publishes
-*when* it last stopped, not *how long ago*, and parsing `16.08.26 16:55:40` in Loxone Config is
-painful — that is the entire justification. The arithmetic is the controller's own, verified to
-the second against a real display.
+Everything else in the payload is read; these two are computed. Both close the same gap: the
+controller publishes a *point in time* where the useful thing is a *span*, and parsing
+`16.08.26 16:55:40` in Loxone Config is painful. That is the entire justification — anything
+that merely rewords a value the controller already sent does not belong here.
 
-It requires the mode code rather than guessing from the compressor: during the controller's
-*Pumpenvorlauf* phase the compressor is still off, so a heuristic calls a starting pump
-"standing".
+**How long the pump has been standing**, as `status_steht_seit` / `_sekunden`, from
+`abschaltungen[0].uhrzeit` and only while `Modus Code` is 5. The arithmetic is the controller's
+own, verified to the second against a real display. It requires the mode code rather than
+guessing from the compressor: during the controller's *Pumpenvorlauf* phase the compressor is
+still off, so a heuristic calls a starting pump "standing".
+
+**How long ago the newest error was logged**, as `status_fehler_seit_sekunden` / `_tage`, from
+`fehlerspeicher[0].uhrzeit`. Deliberately *not* tied to `Modus Code` — the last error is the last
+error whatever the pump is doing — so `compose()` is called in `fetch.php` **outside** the
+try/catch around `LuxCalculations`: a controller not serving port 8889 still gets these two
+fields. Seconds and whole days only; no `HH:MM:SS` (unreadable over months) and no `vor 457
+Tagen` text (the controller supplies the words, the plugin the numbers).
+
+Two asymmetries between them are intentional, not oversights. A timestamp in the future (a
+controller clock ahead of the LoxBerry) *drops* the standing timer — which would otherwise sit
+at zero for the length of the offset, while it is the whole point of the field — but *clamps*
+the error age to 0, where zero is a truthful answer. And a missing, empty (`-`) or unparsable
+timestamp omits the fields rather than publishing 0, so the Loxone input keeps its last value
+instead of claiming a fault just happened.
+
+`parseTimestamp()` forces a two-digit year into 20xx: PHP reads 70–99 as 19xx, and a Luxtronik 2
+has no dates before 2000.
 
 **Do not reintroduce composed status text.** It was tried and removed: the mode enum has 8 values
 where the display draws on 16 (`Pumpenvorlauf`, `Schaltspielzeit`, `Sperrzeit`,

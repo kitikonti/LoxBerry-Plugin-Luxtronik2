@@ -89,8 +89,8 @@ them through unchanged so nothing is distorted.
 
 ## MQTT status codes
 
-Everything the plugin publishes is the controller's own value, verbatim, with one
-exception noted at the end. Section and key names are lowercased and transliterated
+Everything the plugin publishes is the controller's own value, verbatim, apart from
+the two derived spans noted below. Section and key names are lowercased and transliterated
 (`Wärmemenge` → `waermemenge`, spaces → `_`); the MQTT Gateway then renders an
 underscore inside a key as `##_`, so `status_modus_code` reaches Loxone as
 `luxtronik2_status_modus##_code`.
@@ -144,7 +144,7 @@ event is published verbatim as `abschaltungen_0_name`.
 
 ### `status_steht##_seit` / `status_steht##_seit##_sekunden`
 
-**The one derived value.** Present only while `status_modus##_code` is `5`. The
+**Derived, not read.** Present only while `status_modus##_code` is `5`. The
 controller publishes *when* it last stopped, not *how long ago*, so this is
 `now − abschaltungen_0_uhrzeit` — the same arithmetic the controller uses for its own
 display timer.
@@ -152,6 +152,32 @@ display timer.
 While the pump runs, the controller's own counter is published verbatim as
 `ablaufzeiten_wp##_seit`. Note that counter only advances while running and holds a
 stale value in between, so use it only when `status_modus##_code != 5`.
+
+### `status_fehler##_seit##_sekunden` / `status_fehler##_seit##_tage`
+
+**Derived, not read.** How long ago the newest entry in the error log was recorded:
+`now − fehlerspeicher_0_uhrzeit`, in whole seconds and in whole days (rounded down,
+so a fault from this morning reads `0`).
+
+The error itself is published verbatim as `fehlerspeicher_0_name` and
+`fehlerspeicher_0_uhrzeit`, which in Loxone shows up as `18.05.25 15:02:23 |
+VD Alarm (787)` — a date Loxone Config cannot parse, leaving the reader to work out
+whether that was yesterday or fifteen months ago. The same gap the standing timer
+above closes.
+
+Unlike the standing timer this is **not** tied to `status_modus##_code`: the last
+error is the last error whatever the pump is doing, so both fields are published on
+every run.
+
+Both fields are **absent** when the error log is empty, when the controller sent no
+timestamp (`-`), or when the timestamp cannot be read — never `0`, which would read as
+"a fault just happened". A virtual input in Loxone keeps the last value it received, so
+after such a run it shows the previous, now slightly stale, age. A controller clock
+running ahead of the LoxBerry is clamped to `0` rather than dropped.
+
+There is deliberately no composed text like `vor 457 Tagen` and no `HH:MM:SS` variant:
+these spans run to months, where a clock format is unreadable, and the sentence belongs
+in Loxone — the controller supplies the words, the plugin only the numbers.
 
 ### Text
 
