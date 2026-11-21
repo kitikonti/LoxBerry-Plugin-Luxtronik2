@@ -9,6 +9,7 @@ require_once "loxberry_log.php";
 use Luxtronic2\LuxController;
 use Luxtronic2\LuxStatus;
 use Luxtronic2\LuxCalculations;
+use Luxtronic2\LuxFilter;
 use Luxtronic2\LuxException;
 use Luxtronic2\LuxConnectionException;
 use Luxtronic2\LuxProtocolException;
@@ -103,6 +104,38 @@ try {
     $data['status'] = LuxController::toMqttKeys($status);
   }
 
+  // ---------------------------------------------------------- value filter --
+  // Every name this run produced, for the settings page to offer - written
+  // whatever the filter mode, so the list is there before the filter is first
+  // switched on. A RAM-disk file; failing to write it must never stop a publish.
+  $available = LuxFilter::names($data);
+  if (!LuxFilter::updateAvailable("$lbplogdir/" . LuxFilter::AVAILABLE_FILE, $available)) {
+    LOGWARN("Could not write $lbplogdir/" . LuxFilter::AVAILABLE_FILE
+      . ' - the settings page cannot list the current values.');
+  }
+
+  if ($pluginconfig->get("SETTINGS", "FILTER", LuxFilter::MODE_ALL) === LuxFilter::MODE_SELECTED) {
+    $selected = LuxFilter::readSelection("$lbpconfigdir/" . LuxFilter::SELECTION_FILE);
+    $data     = LuxFilter::apply($data, $selected);
+    $kept     = count(LuxFilter::names($data));
+    LOGINF(sprintf('Value filter: publishing %d of %d values', $kept, count($available)));
+    // Not a warning: some selected values exist only in certain states (the
+    // standing timer only while the pump stands).
+    $absent = array_diff($selected, array_keys($available));
+    if ($absent !== []) {
+      LOGDEB('Selected but not delivered this run: ' . implode(', ', $absent));
+    }
+    if ($kept === 0) {
+      // Same rule as a failed fetch: publish nothing rather than overwrite the
+      // retained message with an empty one.
+      throw new LuxProtocolException(
+        'The value filter is on, but none of the ' . count($selected) . ' selected '
+        . 'values was delivered - nothing published. Check the selection on the '
+        . 'settings page.'
+      );
+    }
+  }
+
   $payload = json_encode($data);
   if ($payload === FALSE) {
     throw new RuntimeException(
@@ -124,7 +157,7 @@ try {
   $mqtt = new Bluerhinos\phpMQTT($creds['brokerhost'], $creds['brokerport'], $client_id);
   // Connect to mqtt broker and publish loxtronik data
   if ($mqtt->connect(TRUE, NULL, $creds['brokeruser'], $creds['brokerpass'])) {
-    $mqtt->publish("luxtronik2", $payload, 0, 1);
+    $mqtt->publish(LuxFilter::TOPIC, $payload, 0, 1);
     $mqtt->close();
     LOGOK("Fetched data and published to MQTT");
   }

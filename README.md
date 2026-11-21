@@ -44,6 +44,7 @@ The configuration page is reachable from the LoxBerry main menu.
 | **Password** | Password of the web interface, `999999` from the factory |
 | **Fetch data automatically** | Creates or removes the cronjob |
 | **Polling cycle** | 1, 3, 5, 10, 15, 30 or 60 minutes |
+| **Value filter** | *All values* (default) or *Selected values only* — see below |
 
 **Test connection** reads once from the heat pump using the values currently in the form,
 without saving them — so a wrong address can be corrected before it becomes the cronjob's
@@ -56,6 +57,39 @@ problem.
 > **A short polling cycle loads the controller's small web server.** There are field reports of
 > it becoming unresponsive under sustained polling, needing the heat pump to be power-cycled
 > (the pump itself keeps running). If in doubt, choose 5 minutes.
+
+### Value filter
+
+By default the plugin publishes every value the controller reports — around a hundred,
+depending on the model. The MQTT Gateway relays **each one** to the Miniserver as an HTTP
+request, and every value that has no virtual input there is answered with `404`. Since
+Miniserver firmware 17.3 the Miniserver's *Application Firewall* gives the sender penalty points
+for each 404 and, past a threshold, slows it down (`HTTP 429`) or blocks it — which then hits
+*all* values from the LoxBerry, not just this plugin's.
+
+Set **Value filter** to *Selected values only* and tick the values you have a virtual input
+for. Only those are published; nothing else changes — a selected value keeps its name, topic
+and format exactly, so existing virtual inputs and Stats4Lox keep working.
+
+* The list shows each value under the name it has in the Incoming Overview and in Loxone
+  Config (e.g. `luxtronik2_ablaufzeiten_wp##_seit`), grouped by section, with the last value
+  read. Compare it with the *Virtuelle Eingänge* in your Loxone project.
+* The list is built from what the plugin has read **since the LoxBerry last booted**. Right
+  after a reboot it is empty until the next automatic fetch has run. Values that only exist in
+  certain states (`status_steht##_seit` only while the pump is standing) appear once they have
+  been seen.
+* A selected value the controller did not deliver lately stays in the list, marked as such, so
+  saving the page never drops it by accident.
+* The selection is kept when you switch back to *All values*.
+* The selection is a whitelist on purpose: a new value that arrives with a firmware update is
+  not published until you select it, so it cannot cause new 404s.
+* It is stored one name per line in `published_values.txt` in the plugin's config folder and
+  survives plugin updates.
+
+After switching the filter on, the removed values stop being sent at once. They still appear in
+the Gateway's **Incoming Overview** for up to 24 hours; **Delete cache** there removes them
+immediately. Nothing needs to be cleared on the broker: the plugin publishes everything as one
+retained message on the single topic `luxtronik2`, which each fetch replaces as a whole.
 
 ## Using the data in Loxone Config
 
@@ -205,7 +239,8 @@ get a `_1`, `_2`, … suffix:
 ### Which values exist
 
 That depends on firmware and model — the **Incoming Overview** is authoritative, since it shows
-exactly what your own system delivers. Note the MQTT Gateway only transmits **changes**.
+exactly what your own system delivers. Note the MQTT Gateway only transmits **changes**. To
+publish only some of them, use the [value filter](#value-filter).
 
 ## Troubleshooting
 

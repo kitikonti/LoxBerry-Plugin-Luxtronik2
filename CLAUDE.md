@@ -110,6 +110,32 @@ This is why `LuxController::transformKeys()` matters: it rewrites every key recu
 `Betriebsstunden` become `waermemenge` / `betriebsstunden`. **Changing `replaceCharacters()`
 renames Miniserver inputs in every existing installation** — treat it as a breaking change.
 
+### Value filter — LuxFilter (`bin/fetch_heat_pump_data/src/LuxFilter.php`)
+
+Optional whitelist of published values, because every value without a virtual input costs the
+LoxBerry a 404 and, since Miniserver firmware 17.3, Application Firewall penalty points (throttled
+at 200, blocked at 300). `[SETTINGS] FILTER=all|selected` in `pluginconfig.cfg` (missing means
+`all` — the pre-1.11 behaviour, and what every upgraded installation gets); the selection is
+`$lbpconfigdir/published_values.txt`, one name per line, not shipped, so upgrades keep it.
+
+Names are the **Gateway's** names (`luxtronik2_ablaufzeiten_wp##_seit`), i.e. the Loxone virtual
+input designation. `LuxFilter::names()` reproduces `mqttgateway.pl`: `Hash::Flatten` with both
+delimiters `_` and escape `#`, so an underscore inside a key becomes `##_` (escaped once per
+delimiter). Verified against the real Perl module on the tombrk capture — all 73 names identical,
+including oddities like `waermemenge_seit##_:##_##_311018`. If the Gateway's flatten options ever
+change, this is what breaks.
+
+`apply()` only removes leaves and then empty sections — kept values are byte-identical, and with
+every name selected the payload is identical to the unfiltered one. It runs in `fetch.php` after
+`status` is merged, so derived and binary-protocol values are filterable too. A filter that keeps
+nothing throws `LuxProtocolException`: publishing nothing beats overwriting the retained message
+with `[]`.
+
+The settings page offers names from `$lbplogdir/available_values.json`, which `fetch.php` merges
+into on every run, filter on or off. It lives on the RAM disk (rewritten every minute) and only
+grows until boot, so state-dependent values (`status_steht_seit`) stay selectable while absent.
+Saved names are always listed as well, so saving the page can never silently drop one.
+
 ### LuxController (`bin/fetch_heat_pump_data/src/LuxController.php`)
 
 Namespace `Luxtronic2` — note the spelling (`c`, not `k`) in the namespace, the PSR-4 mapping and

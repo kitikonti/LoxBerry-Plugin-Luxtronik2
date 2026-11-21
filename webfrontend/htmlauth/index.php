@@ -147,15 +147,35 @@ function luxtronik2_test_connection($ip, $port, $password) {
 
 $pluginconfig = new Config_Lite("$lbpconfigdir/pluginconfig.cfg",LOCK_EX,INI_SCANNER_RAW);
 
+// Value filter files - see LuxFilter. Every use is guarded by
+// $luxtronik2_classes; without them the filter section is shown disabled.
+if ($luxtronik2_classes) {
+  $selection_file = "$lbpconfigdir/" . Luxtronic2\LuxFilter::SELECTION_FILE;
+  $available_file = "$lbplogdir/" . Luxtronic2\LuxFilter::AVAILABLE_FILE;
+}
+
 // Submitted values, only populated on POST - see the $rejected block below.
 $ip = $port = $password = "";
 $cycle = 0;
+$filter_mode = "all";
+$filter_values = array();
 
 if (!empty($_POST)) {
   $ip       = trim(isset($_POST["luxtronik2-ip"]) ? $_POST["luxtronik2-ip"] : "");
   $port     = trim(isset($_POST["luxtronik2-port"]) ? $_POST["luxtronik2-port"] : "");
   $password = isset($_POST["luxtronik2-password"]) ? $_POST["luxtronik2-password"] : "";
   $cycle    = (int) (isset($_POST["luxtronik2-croncycle"]) ? $_POST["luxtronik2-croncycle"] : 0);
+  $filter_mode = (isset($_POST["luxtronik2-filter"]) && $_POST["luxtronik2-filter"] === "selected")
+    ? "selected" : "all";
+  $filter_values = (isset($_POST["luxtronik2-values"]) && is_array($_POST["luxtronik2-values"]))
+    ? $_POST["luxtronik2-values"] : array();
+  if ($luxtronik2_classes) {
+    $filter_values = Luxtronic2\LuxFilter::clean($filter_values);
+  }
+  // A filter that lets nothing through would leave Loxone without any value.
+  if ($filter_mode === "selected" && empty($filter_values)) {
+    $messages["error"][] = $L['MESSAGES.FILTER_EMPTY'];
+  }
 
   // Validate before saving: a bad address here means fetch.php fails on every
   // cron run, and the only place that shows up is the plugin log.
@@ -193,6 +213,17 @@ if (!empty($_POST)) {
       update_crontab();
     }
     $pluginconfig->set("SETTINGS","CRONCYCLE",$cycle);
+    // The selection is kept while the filter is off, so switching it back on
+    // restores it. Without the classes the posted list was never shown (and
+    // so is empty): leave the stored one alone.
+    if ($luxtronik2_classes) {
+      if (Luxtronic2\LuxFilter::writeSelection($selection_file, $filter_values)) {
+        $pluginconfig->set("SETTINGS","FILTER",$filter_mode);
+      }
+      else {
+        $messages["error"][] = sprintf($L['MESSAGES.FILTER_NOTSAVED'], $selection_file);
+      }
+    }
     $pluginconfig->save();
     $messages["info"][] = $L['MESSAGES.SAVED'];
   }
@@ -212,6 +243,27 @@ $form_cycle   = $rejected ? $cycle    : $pluginconfig->get("SETTINGS","CRONCYCLE
 $cron_checked = "";
 if ($rejected ? isset($_POST["luxtronik2-cron"]) : $pluginconfig->getBool("SETTINGS","CRON")) {
   $cron_checked = "checked=\"\"";
+}
+
+// Value filter: offer every name read since boot, plus every saved one - a
+// selected value the controller did not deliver lately must stay visible, or
+// saving the page would silently drop it from the selection.
+$form_filter = $rejected ? $filter_mode : $pluginconfig->get("SETTINGS","FILTER","all");
+$filter_sections = array();
+$filter_available = array();
+if ($luxtronik2_classes) {
+  $form_values = $rejected ? $filter_values : Luxtronic2\LuxFilter::readSelection($selection_file);
+  $filter_available = Luxtronic2\LuxFilter::readAvailable($available_file);
+  $all_names = array_unique(array_merge(array_keys($filter_available), $form_values));
+  sort($all_names, SORT_STRING);
+  $form_selected = array_flip($form_values);
+  foreach ($all_names as $name) {
+    $filter_sections[Luxtronic2\LuxFilter::section($name)][] = array(
+      "name"      => $name,
+      "value"     => array_key_exists($name, $filter_available) ? (string) $filter_available[$name] : NULL,
+      "checked"   => isset($form_selected[$name]),
+    );
+  }
 }
 
 $template_title = "Luxtronik 2";
@@ -261,6 +313,16 @@ foreach ($messages as $type => $type_messages) {
     .luxtronik2-settings h2:first-of-type {
       margin-top: 0;
     }
+
+    .luxtronik2-value {
+      float: right;
+      font-weight: normal;
+      opacity: 0.7;
+    }
+
+    .luxtronik2-notice {
+      font-weight: bold;
+    }
   </style>
 
   <form class="luxtronik2-settings" method="post" name="settings">
@@ -307,6 +369,48 @@ foreach ($messages as $type => $type_messages) {
       </select>
     </div>
 
+    <h2><?= $L['FILTER.TITLE'] ?></h2>
+
+    <p><?= h($L['FILTER.INTRO']) ?></p>
+
+    <div class="ui-field-contain">
+      <label for="luxtronik2-filter" class="select"><?= $L['FILTER.MODE'] ?>:</label>
+      <select name="luxtronik2-filter" id="luxtronik2-filter"<?= $luxtronik2_classes ? "" : " disabled=\"disabled\"" ?>>
+        <option value="all"<?= $form_filter === "selected" ? "" : " selected=\"selected\"" ?>><?= h($L['FILTER.MODE_ALL']) ?></option>
+        <option value="selected"<?= $form_filter === "selected" ? " selected=\"selected\"" : "" ?>><?= h($L['FILTER.MODE_SELECTED']) ?></option>
+      </select>
+    </div>
+
+    <div class="luxtronik2-values-wrapper">
+      <?php if (!$luxtronik2_classes): ?>
+        <p><?= h($L['MESSAGES.TEST_UNAVAILABLE']) ?></p>
+      <?php else: ?>
+        <p><?= h($L['FILTER.HINT']) ?></p>
+        <?php if (empty($filter_available)): ?>
+          <p class="luxtronik2-notice"><?= h($L['FILTER.NO_DATA']) ?></p>
+        <?php endif; ?>
+        <p class="luxtronik2-count"></p>
+        <?php foreach ($filter_sections as $section => $entries): ?>
+          <div data-role="collapsible" data-mini="true" class="luxtronik2-section">
+            <h3><?= h($section) ?> <span class="luxtronik2-section-count"></span></h3>
+            <p>
+              <a href="#" class="luxtronik2-select-all"><?= h($L['FILTER.SELECT_ALL']) ?></a> &middot;
+              <a href="#" class="luxtronik2-select-none"><?= h($L['FILTER.SELECT_NONE']) ?></a>
+            </p>
+            <fieldset data-role="controlgroup" data-mini="true">
+              <?php foreach ($entries as $entry):
+                $id = "luxtronik2-value-" . md5($entry["name"]); ?>
+                <input type="checkbox" name="luxtronik2-values[]" id="<?= $id ?>" value="<?= h($entry["name"]) ?>"<?= $entry["checked"] ? " checked=\"checked\"" : "" ?>>
+                <label for="<?= $id ?>"><?= h($entry["name"]) ?>
+                  <span class="luxtronik2-value"><?= $entry["value"] === NULL ? h($L['FILTER.NOT_DELIVERED']) : h($entry["value"]) ?></span>
+                </label>
+              <?php endforeach; ?>
+            </fieldset>
+          </div>
+        <?php endforeach; ?>
+      <?php endif; ?>
+    </div>
+
     <div class="ui-field-contain luxtronik2-form-submit">
       <input type="submit" value="<?= h($L['SETTINGS.SAVE']) ?>" data-icon="check">
       <input type="submit" name="luxtronik2-test" value="<?= h($L['SETTINGS.TEST']) ?>" data-icon="refresh">
@@ -333,6 +437,37 @@ foreach ($messages as $type => $type_messages) {
         $(".luxtronik2-croncycle-wrapper").hide();
       }
     }
+
+    // Value filter: the list only matters when "selected values" is chosen.
+    // Hidden checkboxes are still submitted, so the selection survives
+    // switching the filter off and on again.
+    $("#luxtronik2-filter").bind("change", hideShowValues);
+    $(".luxtronik2-values-wrapper").on("change", "input[type=checkbox]", updateCounts);
+    hideShowValues();
+    updateCounts();
+
+    function hideShowValues() {
+      $(".luxtronik2-values-wrapper").toggle($("#luxtronik2-filter").val() === "selected");
+    }
+
+    function updateCounts() {
+      var all = $(".luxtronik2-values-wrapper input[type=checkbox]");
+      $(".luxtronik2-count").text(<?= json_encode($L['FILTER.COUNT']) ?>
+        .replace("%1", all.filter(":checked").length).replace("%2", all.length));
+      $(".luxtronik2-section").each(function() {
+        var boxes = $(this).find("input[type=checkbox]");
+        $(this).find(".luxtronik2-section-count")
+          .text("(" + boxes.filter(":checked").length + "/" + boxes.length + ")");
+      });
+    }
+
+    $(".luxtronik2-select-all, .luxtronik2-select-none").on("click", function(event) {
+      event.preventDefault();
+      $(this).closest(".luxtronik2-section").find("input[type=checkbox]")
+        .prop("checked", $(this).hasClass("luxtronik2-select-all"))
+        .checkboxradio("refresh");
+      updateCounts();
+    });
 
   </script>
 
